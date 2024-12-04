@@ -1,1 +1,3 @@
-# py-orbitalis
+# Orbitalis
+
+Distributed micro-kernel library for Python.
