@@ -91,6 +91,22 @@ Currently there are no security checks (e.g. no login) and we trust ID shared by
 
 We could uniform cores and plugins in entities which are able to provide a functionality requiring a set of other entities to work; obviously this is not a micro-kernel architecture, but now there is not a structured system (i.e. having ACK) to share information between cores and between plugins. 
 
+![Evolution](doc/assets/images/orbitalis-evolution.png)
+
+
+***What's new?***
+
+- **Dynamic dependencies resolution**
+- **Orbs interaction tracing** for debug, logging events
+
+***Issues***
+
+- EventBus is a one-point-of-failure
+- Overhead in messages handling, given that all orbs share the bus
+- Security, no authorization system 
+
+
+
 
 
 
