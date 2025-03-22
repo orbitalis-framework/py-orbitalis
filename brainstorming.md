@@ -97,13 +97,15 @@ We could uniform cores and plugins in entities which are able to provide a funct
 ***What's new?***
 
 - **Dynamic dependencies resolution**
+  - Request balancing among *same-type-dependencies*
+  - Dependencies graph building protocol
 - **Orbs interaction tracing** for debug, logging events
 
 ***Issues***
 
 - EventBus is a one-point-of-failure
 - Overhead in messages handling, given that all orbs share the bus
-- Security, no authorization system 
+- Security, no authorization system, only topic segmentation
 
 
 
