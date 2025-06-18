@@ -1,10 +1,12 @@
-from enum import Enum
+from dataclasses import dataclass
+from typing import override, Self
+
+from orbitalis.orb.state import OrbState
 
 
-class CoreState(Enum):
-    CREATED = 1
-    READY = 2
-    STARTING = 3
-    RUNNING = 4
-    STOPPING = 5
-    STOPPED = 6
+@dataclass
+class NonCompliance(OrbState):
+
+    @override
+    async def handle(self, *args, **kwargs) -> Self:
+        pass

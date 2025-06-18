@@ -1,56 +1,45 @@
 import asyncio
 from abc import ABC
-
-from typing import Dict, List
-
-from busline.eventbus_client.eventbus_client import EventBusClient
-from orbitalis.core.configuration import CoreConfiguration
-from orbitalis.core.plug_info import PlugInformation, PlugsInformation
-from orbitalis.core.state import CoreState
-from orbitalis.events.discover import DiscoverEvent, DiscoverEventContent
-from orbitalis.wellknown_topic import CorePluginCommunicationTopic
+from dataclasses import dataclass, field
+from typing import override, Set
+from orbitalis.core.configuration import CoreConfiguration, Feature
+from orbitalis.core.state import NonCompliance
+from orbitalis.descriptor.descriptors_manager import DescriptorsManager
+from orbitalis.orb.orb import Orb
+from orbitalis.plugin.descriptor import PluginDescriptor
 
 
-class Core(ABC):
+@dataclass
+class Core(Orb, ABC):
+    configuration: CoreConfiguration
+    plugins: DescriptorsManager = field(default_factory=set)
 
-    def __init__(self, identifier: str, eventbus_client: EventBusClient, configuration: CoreConfiguration):
+    def _is_compliance_for_feature(self, feature: Feature) -> bool:
+        """
+        Return True if the plugged plugins are enough to perform given feature
+        """
 
-        self._identifier = identifier
-        self._eventbus_client = eventbus_client
-        self._configuration = configuration
-        self._state = CoreState.CREATED
-        self._plugs_information: PlugsInformation = PlugsInformation()
+        for mandatory_plugin_id in feature.mandatory_plugins_by_identifier:
+            if mandatory_plugin_id not in self.plugins.descriptors_by_identifier:
+                return False
 
-        self.__state_management_loop()
-
-
-    async def __state_management_loop(self):
-
-        while self._state != CoreState.STOPPED:
-
-            # TODO:
-            # for needed_type, needed_conf in self._configuration.needed_plugins_by_type:
-            #     n_plugs = len(self._plugs_information.plugged_plugins_by_types[needed_type])
-            #
-            #     if needed_conf.min > n_plugs:
-            #         pass
-            #         # TODO: send discover
-            #
-            #     if needed_conf.max < n_plugs:
-            #         pass
-            #         # TODO: send unplug
-
-            for plug_id in self._configuration.needed_plugins_by_identifier:
-                if plug_id not in self._plugs_information.plugged_plugins_by_identifiers:
-                    await self._eventbus_client.publish(
-                        CorePluginCommunicationTopic.PLUGIN_DISCOVER.name,
-                        DiscoverEvent(DiscoverEventContent(
-                            core_identifier=self._identifier,
-                            identifiers=[plug_id]
-                        ))
-                    )
+        # TODO: maybe return what is needed
 
 
-            await asyncio.sleep(self._configuration.discovering_interval)
+        return True
 
+    def _is_compliance(self) -> bool:
+        """
+        Return True if the plugged plugins are enough to perform all features
+        """
+
+        for feature in self.configuration.features:
+            if not self._is_compliance_for_feature(feature):
+                return False
+
+        return True
+
+    @override
+    async def _internal_start(self, *args, **kwargs):
+        self.state = NonCompliance()
 
