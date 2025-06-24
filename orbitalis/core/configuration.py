@@ -3,7 +3,7 @@ from typing import List, Dict, Optional, Set
 
 
 @dataclass
-class Needed:
+class Need:
     """
     mandatory: `True` if this record is mandatory for core
     min: minimum number of plugins of this type
@@ -16,7 +16,6 @@ class Needed:
 
     minimum: Optional[int] = field(default=None)
     maximum: Optional[int] = field(default=None)
-    required: Set[str] = field(default_factory=set)
     allowlist: Optional[Set[str]] = field(default=None)
     blocklist: Optional[Set[str]] = field(default=None)
     priority: Dict[str, int] = field(default_factory=dict)
@@ -28,22 +27,31 @@ class Needed:
         if self.allowlist is not None and self.blocklist is not None:
             raise ValueError("allowlist and blocklist can not be used together")
 
-        if self.blocklist is not None and len(self.required.intersection(self.blocklist)) > 0:
-            raise ValueError(f"{self.required.intersection(self.blocklist)} are both in required and blocklist")
 
-        if len(self.required) > self.maximum:
-            raise ValueError("required is greater than maximum")
+@dataclass
+class Needs:
+    mandatory_plugins_by_identifier: Set[str] = field(default_factory=frozenset)
+    optional_plugins_by_identifier: Set[str] = field(default_factory=frozenset)
+    mandatory_plugins_by_tag: Dict[str, Need] = field(default_factory=dict)
+    optional_plugins_by_tag: Dict[str, Need] = field(default_factory=dict)
 
+    def __post_init__(self):
+        if self.mandatory_plugins_by_identifier.intersection(self.optional_plugins_by_identifier):
+            raise ValueError("A plugin identifier can be mandatory OR optional, not both")
+
+        if set(self.mandatory_plugins_by_tag.keys()).intersection(self.optional_plugins_by_tag.keys()):
+            raise ValueError("A plugin tag can be mandatory OR optional, not both")
+
+    def something_needed(self) -> bool:
+        return len(self.mandatory_plugins_by_identifier) != 0 or \
+                len(self.mandatory_plugins_by_tag.keys()) != 0
 
 @dataclass
 class Feature:
     name: str
     description: Optional[str] = field(default=None)
 
-    mandatory_plugins_by_identifier: Set[str] = field(default_factory=frozenset)
-    optional_plugins_by_identifier: Set[str] = field(default_factory=frozenset)
-    mandatory_plugins_by_tag: Dict[str, Needed] = field(default_factory=dict)
-    optional_plugins_by_tag: Dict[str, Needed] = field(default_factory=dict)
+    needs: Needs = field(default_factory=Needs)
 
 
 
@@ -55,6 +63,7 @@ class CoreConfiguration:
     Author: Nicola Ricciardi
     """
 
-    features: Set[Feature]
+    mandatory_features: Set[Feature]
+    optional_features: Set[Feature]
 
     discovering_interval: int = field(default=2)
