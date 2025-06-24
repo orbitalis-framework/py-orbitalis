@@ -1,9 +1,8 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Self
 import logging
-from typing_extensions import override
+from typing import override
 
 
 @dataclass
@@ -59,9 +58,8 @@ class StateMachine(ABC):
         TODO
         """
 
-    @abstractmethod
     async def _internal_stop(self, *args, **kwargs):
-        self.state = Stopped()
+        self.state = Stopped(self)
 
     async def on_stopped(self, *args, **kwargs):
         """
@@ -79,6 +77,11 @@ class State(ABC):
     async def handle(self, *args, **kwargs):
         raise NotImplemented()
 
+    @classmethod
+    @abstractmethod
+    async def mount(cls, context: StateMachine, *args, **kwargs):
+        raise NotImplemented()
+
 
 @dataclass
 class Created(State):
@@ -90,6 +93,11 @@ class Created(State):
         raise NotImplemented(f"{self.name} state is able to handle *nothing*")
 
 
+    @classmethod
+    async def mount(cls, context: StateMachine, *args, **kwargs):
+        context.state = Created(context)
+
+
 @dataclass
 class Stopped(State):
 
@@ -98,3 +106,7 @@ class Stopped(State):
     @override
     async def handle(self, *args, **kwargs):
         raise NotImplemented(f"{self.name} state is able to handle *nothing*")
+
+    @classmethod
+    async def mount(cls, context: StateMachine, *args, **kwargs):
+        context.state = Created(context)

@@ -20,7 +20,7 @@ class Need:
     priority: Dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.minimum < 0 or self.maximum < 0 or self.minimum > self.maximum:
+        if self.minimum < 0 or (self.maximum is not None and self.maximum < 0) or (self.maximum is not None and self.minimum > self.maximum):
             raise ValueError("minimum and/or maximum value are invalid")
 
         if self.allowlist is not None and self.blocklist is not None:
