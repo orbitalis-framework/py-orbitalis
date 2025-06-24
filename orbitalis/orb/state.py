@@ -3,27 +3,13 @@ from dataclasses import dataclass, field
 from typing import Self, override
 import asyncio
 
-
-@dataclass
-class OrbState(ABC):
-
-    @abstractmethod
-    async def handle(self, *args, **kwargs) -> Self:
-        raise NotImplemented()
-
+from orbitalis.state_machine.state_machine import State
 
 
 @dataclass
-class Created(OrbState):
+class OrbState(State, ABC):
+    """
 
-    @override
-    async def handle(self, *args, **kwargs) -> Self:
-        raise NotImplemented()
-
-@dataclass
-class Running(OrbState):
-
-    @override
-    async def handle(self, *args, **kwargs) -> Self:
-        raise NotImplemented()
+    Author: Nicola Ricciardi
+    """
 

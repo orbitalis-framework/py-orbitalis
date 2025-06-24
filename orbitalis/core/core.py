@@ -2,10 +2,15 @@ import asyncio
 from abc import ABC
 from dataclasses import dataclass, field
 from typing import override, Set, Optional, Dict
+
+from pyexpat import features
+
 from orbitalis.core.configuration import CoreConfiguration, Feature, Need, Needs
 from orbitalis.core.plugin_descriptor_manager import PluginDescriptorsManager
 from orbitalis.core.state import NonCompliance
 from orbitalis.descriptor.descriptors_manager import DescriptorsManager
+from orbitalis.events.discover import DiscoverEvent, DiscoverEventContent
+from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
 from orbitalis.orb.orb import Orb
 from orbitalis.plugin.descriptor import PluginDescriptor
 import copy
@@ -30,25 +35,16 @@ class Core(Orb, ABC):
         needs.mandatory_plugins_by_identifier = needs.mandatory_plugins_by_identifier.difference(plugins.descriptors_by_identifier)
         needs.optional_plugins_by_identifier = needs.mandatory_plugins_by_identifier.difference(plugins.descriptors_by_identifier)
 
-        for tag, need in needs.mandatory_plugins_by_tag.items():
-            n_plugins = len(plugins.descriptors_by_tag[tag])
+        for plugins_by_tag, reference in zip([needs.mandatory_plugins_by_tag, needs.optional_plugins_by_tag], [needs.mandatory_plugins_by_tag, needs.optional_plugins_by_tag]):
+            for tag, need in plugins_by_tag.items():
+                n_plugins = len(plugins.descriptors_by_tag[tag])
 
-            need.maximum -= max(0, need.maximum - n_plugins)
+                need.maximum -= max(0, need.maximum - n_plugins)
 
-            if need.maximum == 0:
-                del needs.mandatory_plugins_by_tag[tag]
+                if need.maximum == 0:
+                    del reference[tag]
 
-            need.minimum = max(0, need.minimum - n_plugins)
-
-        for tag, need in needs.optional_plugins_by_tag.items():
-            n_plugins = len(plugins.descriptors_by_tag[tag])
-
-            need.maximum -= max(0, need.maximum - n_plugins)
-
-            if need.maximum == 0:
-                del needs.optional_plugins_by_tag[tag]
-
-            need.minimum = max(0, need.minimum - n_plugins)
+                need.minimum = max(0, need.minimum - n_plugins)
 
         return needs
 
@@ -57,7 +53,7 @@ class Core(Orb, ABC):
         Return True if the plugged plugins are enough to perform given feature
         """
 
-        return not self._need_for_feature(feature).something_needed()
+        return not self._needs_for_feature(feature).something_needed()
 
     def _is_compliance(self) -> bool:
         """
@@ -69,6 +65,23 @@ class Core(Orb, ABC):
                 return False
 
         return True
+
+
+    def send_discover(self) -> None:
+
+        needs_set = set()
+        for feature in self.configuration.features:
+            needs = self._needs_for_feature(feature)
+            needs_set.add(needs)
+
+        discover_event = DiscoverEvent(
+            content=DiscoverEventContent(self.identifier, needs_set)
+        )
+
+        self.eventbus_client.publish(
+            WellKnownHandShakeTopic.build_discover_topic(self.identifier),
+            discover_event
+        )
 
     @override
     async def _internal_start(self, *args, **kwargs):

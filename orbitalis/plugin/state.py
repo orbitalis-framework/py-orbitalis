@@ -1,10 +1,18 @@
-from enum import Enum
+from dataclasses import dataclass, field
+from typing import override, Self
+
+from orbitalis.orb.state import OrbState
+from orbitalis.plugin.plugin import Plugin
 
 
-class PluginState(Enum):
-    CREATED = 1
-    READY = 2
-    STARTING = 3
-    RUNNING = 4
-    STOPPING = 5
-    STOPPED = 6
+@dataclass
+class Running(OrbState):
+    name: str = field(default="RUNNING", init=False)
+    context: Plugin
+
+    def __post_init__(self):
+        self.context.subscribe_on_discover()
+
+    @override
+    async def handle(self, *args, **kwargs):
+        return self

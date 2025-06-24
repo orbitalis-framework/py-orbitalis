@@ -1,30 +1,28 @@
 import json
 from dataclasses import dataclass, field
-from typing import List
+from typing import Set
 from busline.event.event import Event
 
+from orbitalis.core.configuration import Needs
+from orbitalis.events.orb_event import OrbEvent
+from orbitalis.events.wellknown_event import WellKnownEventType
 
 
 @dataclass
 class DiscoverEventContent:
     """
     core_identifier: identifier of core which has sent discover
-    types: list of needed plugin types
-    identifiers: list of needed plugin identifiers
-    whitelist: (only if `types` is set) admitted plugin identifiers
-    blacklist: (only if `types` is set) not admitted plugin identifiers
+
+    TODO
 
     Author: Nicola Ricciardi
     """
 
     core_identifier: str
-    types: List[str] | None = field(default=None)
-    identifiers: List[str] | None = field(default=None)
-    whitelist: List[str] | None = field(default=None)
-    blacklist: List[str] | None = field(default=None)
+    needs_set: Set[Needs]
 
 
-class DiscoverEvent(Event):
-    def __init__(self, content: DiscoverEventContent):
+@dataclass(frozen=True)
+class DiscoverEvent(OrbEvent):
+    event_type = WellKnownEventType.DISCOVER.value
 
-        Event.__init__(self, json.dumps(content))

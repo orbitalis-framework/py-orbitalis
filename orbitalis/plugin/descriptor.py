@@ -4,6 +4,6 @@ from typing import FrozenSet
 from orbitalis.descriptor.descriptor import Descriptor
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class PluginDescriptor(Descriptor):
     tags: FrozenSet[str]
