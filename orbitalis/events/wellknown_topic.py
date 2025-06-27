@@ -1,13 +1,31 @@
 from typing import Optional
 
-ALL_WILDCARD = "*"      # TODO: spostare in py-busline
 
 
 class WellKnownHandShakeTopic:
+    """
+
+
+    Author: Nicola Ricciardi
+    """
+
+    _all_topic_wildcard: str = "*"
 
     @classmethod
     def build_discover_topic(cls, core_identifier: Optional[str] = None) -> str:
-        return f"$handshake.discover.{core_identifier if core_identifier is not None else ALL_WILDCARD}"
+        """
+        CORE ---discover---> PLUGIN
+        """
+
+        return f"$handshake.{core_identifier if core_identifier is not None else cls._all_topic_wildcard}.discover"
+
+    @classmethod
+    def build_offer_topic(cls, core_identifier: str) -> str:
+        """
+        CORE <---offer--- PLUGIN
+        """
+
+        return f"$handshake.{core_identifier}.offer"
 
 
 

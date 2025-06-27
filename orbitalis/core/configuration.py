@@ -4,7 +4,7 @@ from orbitalis.need.need import Need
 
 
 @dataclass
-class FeatureNeed:
+class ServiceNeed:
     mandatory_plugins_by_identifier: Set[str] = field(default_factory=frozenset)
     optional_plugins_by_identifier: Set[str] = field(default_factory=frozenset)
     mandatory_plugins_by_category: Dict[str, Need] = field(default_factory=dict)
@@ -23,11 +23,11 @@ class FeatureNeed:
 
 
 @dataclass
-class Feature:
+class Service:
     name: str
     description: Optional[str] = field(default=None)
 
-    needs: FeatureNeed = field(default_factory=FeatureNeed)
+    needs: ServiceNeed = field(default_factory=ServiceNeed)
 
 
 
@@ -39,11 +39,11 @@ class CoreConfiguration:
     Author: Nicola Ricciardi
     """
 
-    mandatory_features: Set[Feature]
-    optional_features: Set[Feature]
+    mandatory_services: Set[Service]
+    optional_services: Set[Service]
 
     discovering_interval: int = field(default=2)
 
     @property
-    def features(self) -> Set[Feature]:
-        return self.mandatory_features.union(self.optional_features)
+    def services(self) -> Set[Service]:
+        return self.mandatory_services.union(self.optional_services)

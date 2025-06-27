@@ -2,14 +2,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 import logging
-from typing import override
+from typing import override, Self
 
 
-@dataclass
 class StateMachine(ABC):
-    __state: State = field(default=None, init=False)
+    __state: State = None
 
-    def __post_init__(self):
+    def __init__(self):
         self.__state = Created(self)
 
     @property
@@ -18,6 +17,9 @@ class StateMachine(ABC):
 
     @state.setter
     def state(self, s: State):
+        self.set_state(s)
+
+    def set_state(self, s: State):
         logging.info(f"{self}: {self.__state.name} --> {s.name}")
         self.__state = s
 
@@ -68,6 +70,28 @@ class StateMachine(ABC):
 
 
 @dataclass
+class PreventInitStateMixin(ABC):
+    _allow_init: bool = field(default=False, init=False)
+
+    def __post_init__(self):
+        if not self._allow_init:
+            raise NotImplemented("Canonical constructor is not available for this class, use 'create' instead")
+
+
+    @classmethod
+    async def create(cls, context: StateMachine, *args, **kwargs) -> Self:
+        cls._allow_init = True
+        state = await cls._internal_create(context, *args, **kwargs)
+        cls._allow_init = False
+        return state
+
+    @classmethod
+    @abstractmethod
+    async def _internal_create(cls, context: StateMachine, *args, **kwargs) -> Self:
+        raise NotImplemented()
+
+
+@dataclass
 class State(ABC):
 
     context: StateMachine
@@ -77,10 +101,6 @@ class State(ABC):
     async def handle(self, *args, **kwargs):
         raise NotImplemented()
 
-    @classmethod
-    @abstractmethod
-    async def mount(cls, context: StateMachine, *args, **kwargs):
-        raise NotImplemented()
 
 
 @dataclass
@@ -93,11 +113,6 @@ class Created(State):
         raise NotImplemented(f"{self.name} state is able to handle *nothing*")
 
 
-    @classmethod
-    async def mount(cls, context: StateMachine, *args, **kwargs):
-        context.state = Created(context)
-
-
 @dataclass
 class Stopped(State):
 
@@ -106,7 +121,3 @@ class Stopped(State):
     @override
     async def handle(self, *args, **kwargs):
         raise NotImplemented(f"{self.name} state is able to handle *nothing*")
-
-    @classmethod
-    async def mount(cls, context: StateMachine, *args, **kwargs):
-        context.state = Created(context)

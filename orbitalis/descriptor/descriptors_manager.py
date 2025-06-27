@@ -17,3 +17,6 @@ class DescriptorsManager:
 
     def remove_descriptor_by_identifier(self, identifier: str):
         del self.descriptors_by_identifier[identifier]
+
+    def __len__(self) -> int:
+        return len(self.descriptors_by_identifier.keys())

@@ -1,36 +1,33 @@
-import asyncio
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import override, Set, Optional, Dict
+from typing import override, Dict
 
-from pyexpat import features
-
-from orbitalis.core.configuration import CoreConfiguration, Feature, Need, Needs
+from orbitalis.core.configuration import CoreConfiguration, Service, ServiceNeed
+from orbitalis.core.descriptor import CoreDescriptor
 from orbitalis.core.plugin_descriptor_manager import PluginDescriptorsManager
 from orbitalis.core.state import NonCompliance
-from orbitalis.descriptor.descriptors_manager import DescriptorsManager
-from orbitalis.events.discover import DiscoverEvent, DiscoverEventContent
+from orbitalis.descriptor.descriptor import Descriptor
+from orbitalis.events.handshake.discover import DiscoverEvent, DiscoverEventContent
 from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
 from orbitalis.orb.orb import Orb
-from orbitalis.plugin.descriptor import PluginDescriptor
 import copy
 
 
-@dataclass
+@dataclass(kw_only=True, frozen=True)
 class Core(Orb, ABC):
     configuration: CoreConfiguration
-    plugins_by_feature: Dict[str, PluginDescriptorsManager] = field(default_factory=dict)       # feature.name => PluginDescriptor
+    plugins_by_service: Dict[str, PluginDescriptorsManager] = field(default_factory=dict)       # feature.name => PluginDescriptor
 
-    def _needs_for_feature(self, feature: Feature) -> Needs:
+    def _needs_for_service(self, service: Service) -> ServiceNeed:
         """
 
-        :param feature:
-        :return: None is there are no needs, a Needed otherwise
+        :param service:
+        :return: None is there are no needs
         """
 
-        plugins: PluginDescriptorsManager = self.plugins_by_feature[feature.name]
+        plugins: PluginDescriptorsManager = self.plugins_by_service[service.name]
 
-        needs: Needs = copy.deepcopy(feature.needs)
+        needs: ServiceNeed = copy.deepcopy(service.needs)
 
         needs.mandatory_plugins_by_identifier = needs.mandatory_plugins_by_identifier.difference(plugins.descriptors_by_identifier)
         needs.optional_plugins_by_identifier = needs.mandatory_plugins_by_identifier.difference(plugins.descriptors_by_identifier)
@@ -48,20 +45,20 @@ class Core(Orb, ABC):
 
         return needs
 
-    def _is_compliance_for_feature(self, feature: Feature) -> bool:
+    def _is_compliance_for_service(self, service: Service) -> bool:
         """
-        Return True if the plugged plugins are enough to perform given feature
+        Return True if the plugged plugins are enough to perform given service
         """
 
-        return not self._needs_for_feature(feature).something_needed()
+        return not self._needs_for_service(service).something_needed()
 
     def _is_compliance(self) -> bool:
         """
-        Return True if the plugged plugins are enough to perform all features
+        Return True if the plugged plugins are enough to perform all services
         """
 
-        for feature in self.configuration.mandatory_features:
-            if not self._is_compliance_for_feature(feature):
+        for service in self.configuration.mandatory_services:
+            if not self._is_compliance_for_service(service):
                 return False
 
         return True
@@ -70,12 +67,12 @@ class Core(Orb, ABC):
     def send_discover(self) -> None:
 
         needs_set = set()
-        for feature in self.configuration.features:
-            needs = self._needs_for_feature(feature)
+        for service in self.configuration.services:
+            needs = self._needs_for_service(service)
             needs_set.add(needs)
 
         discover_event = DiscoverEvent(
-            content=DiscoverEventContent(self.identifier, needs_set)
+            content=DiscoverEventContent(self.generate_descriptor(), needs_set)
         )
 
         self.eventbus_client.publish(
@@ -83,7 +80,13 @@ class Core(Orb, ABC):
             discover_event
         )
 
+
+    @override
+    def generate_descriptor(self) -> CoreDescriptor:
+        return CoreDescriptor(identifier=self.identifier)
+
     @override
     async def _internal_start(self, *args, **kwargs):
-        self.state = NonCompliance()
+        await super()._internal_start(*args, **kwargs)
+        self.set_state(NonCompliance())
 

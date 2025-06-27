@@ -2,22 +2,27 @@ import asyncio
 from typing import FrozenSet, override
 from abc import ABC
 from dataclasses import dataclass, field
-from orbitalis.descriptor.descriptor import Descriptor
+
+from orbitalis.core.descriptor import CoreDescriptor
+from orbitalis.descriptor.descriptors_manager import DescriptorsManager
 from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
 from orbitalis.orb.orb import Orb
 from orbitalis.plugin.configuration import PluginConfiguration
 from orbitalis.plugin.descriptor import PluginDescriptor
+from orbitalis.plugin.state.running import Running
 from orbitalis.state_machine.state_machine import StateMachine, State
 
 
-@dataclass
+@dataclass(kw_only=True, frozen=True)
 class Plugin(Orb, StateMachine, ABC):
     configuration: PluginConfiguration = field(default_factory=PluginConfiguration)
     categories: FrozenSet[str] = field(default_factory=frozenset)
+    core_descriptors: DescriptorsManager = field(default_factory=DescriptorsManager)
 
     @override
     async def _internal_start(self, *args, **kwargs):
-        await Running.mount(self)
+        await super()._internal_start(*args, **kwargs)
+        self.set_state(await Running.create(self))
 
     async def subscribe_on_discover(self):
         # TODO: gestione eccezioni
@@ -33,6 +38,18 @@ class Plugin(Orb, StateMachine, ABC):
         else:
             await self.eventbus_client.subscribe(WellKnownHandShakeTopic.build_discover_topic())
 
+    def is_core_compatible(self, core_descriptor: CoreDescriptor) -> bool:
+
+        if self.configuration.maximum - len(self.core_descriptors) <= 0:
+            return False
+
+        if self.configuration.blocklist is not None and core_descriptor.identifier in self.configuration.blocklist:
+            return False
+
+        if self.configuration.allowlist is not None and core_descriptor.identifier not in self.configuration.allowlist:
+            return False
+
+        return True
 
     def generate_descriptor(self) -> PluginDescriptor:
         return PluginDescriptor(
@@ -41,30 +58,3 @@ class Plugin(Orb, StateMachine, ABC):
         )
 
 
-@dataclass
-class PluginState(State, ABC):
-    context: Plugin
-
-
-@dataclass
-class Running(PluginState):
-    name: str = field(default="RUNNING", init=False)
-
-    _allow_init: bool = False
-
-    def __post_init__(self):
-        if self._allow_init:
-            raise NotImplemented("Canonical constructor is not available for this class, use mount instead")
-
-    @override
-    async def handle(self, *args, **kwargs):
-        return self
-
-    @classmethod
-    async def mount(cls, context: Plugin, *args, **kwargs):
-        cls._allow_init = True
-
-        context.state = Running(context)
-        await context.subscribe_on_discover()
-
-        cls._allow_init = False

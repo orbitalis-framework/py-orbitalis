@@ -2,5 +2,6 @@ from enum import StrEnum
 
 
 class WellKnownEventType(StrEnum):
-    DISCOVER = "discover"
+    DISCOVER = "handshake-discover"
+    OFFER = "handshake-offer"
 
