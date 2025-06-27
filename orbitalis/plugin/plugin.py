@@ -13,7 +13,7 @@ from orbitalis.state_machine.state_machine import StateMachine, State
 @dataclass
 class Plugin(Orb, StateMachine, ABC):
     configuration: PluginConfiguration = field(default_factory=PluginConfiguration)
-    tags: FrozenSet[str] = field(default_factory=frozenset)
+    categories: FrozenSet[str] = field(default_factory=frozenset)
 
     @override
     async def _internal_start(self, *args, **kwargs):
@@ -37,7 +37,7 @@ class Plugin(Orb, StateMachine, ABC):
     def generate_descriptor(self) -> PluginDescriptor:
         return PluginDescriptor(
             identifier=self.identifier,
-            tags=self.tags
+            categories=self.categories
         )
 
 

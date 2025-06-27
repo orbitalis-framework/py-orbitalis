@@ -11,7 +11,7 @@ class PluginDescriptorsManager(DescriptorsManager):
 
     def add_descriptor(self, descriptor: PluginDescriptor):
         self.add_descriptor(descriptor)
-        for tag in descriptor.tags:
+        for tag in descriptor.categories:
             self.descriptors_by_tag[tag].add(descriptor)
 
     def remove_descriptor_by_identifier(self, identifier: str):

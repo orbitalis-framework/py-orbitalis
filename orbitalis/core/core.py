@@ -35,7 +35,7 @@ class Core(Orb, ABC):
         needs.mandatory_plugins_by_identifier = needs.mandatory_plugins_by_identifier.difference(plugins.descriptors_by_identifier)
         needs.optional_plugins_by_identifier = needs.mandatory_plugins_by_identifier.difference(plugins.descriptors_by_identifier)
 
-        for plugins_by_tag, reference in zip([needs.mandatory_plugins_by_tag, needs.optional_plugins_by_tag], [needs.mandatory_plugins_by_tag, needs.optional_plugins_by_tag]):
+        for plugins_by_tag, reference in zip([needs.mandatory_plugins_by_category, needs.optional_plugins_by_category], [needs.mandatory_plugins_by_category, needs.optional_plugins_by_category]):
             for tag, need in plugins_by_tag.items():
                 n_plugins = len(plugins.descriptors_by_tag[tag])
 
