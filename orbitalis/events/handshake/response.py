@@ -1,3 +1,4 @@
+
 from dataclasses import dataclass, field
 from typing import Set, Optional
 
@@ -18,13 +19,14 @@ class OfferEventContent:
     """
 
     plugin_descriptor: PluginDescriptor
-    reply_topic: str
+    request_topic: str
+    reject_topic: Optional[str] = field(default=None)
     allowlist: Optional[Set[str]] = field(default=None)
     blocklist: Optional[Set[str]] = field(default=None)
-    # TODO: interface
 
 
-@dataclass(frozen=True, kw_only=True)
+
+@dataclass(frozen=True)
 class OfferEvent(OrbEvent):
     content: OfferEventContent
     event_type = WellKnownEventType.OFFER.value

@@ -7,7 +7,7 @@ from orbitalis.events.orb_event import OrbEvent
 from orbitalis.events.wellknown_event import WellKnownEventType
 
 
-@dataclass
+@dataclass(frozen=True)
 class DiscoverEventContent:
     """
 
@@ -17,10 +17,11 @@ class DiscoverEventContent:
     """
 
     core_descriptor: CoreDescriptor
-    features_needs: Set[ServiceNeed]
+    offer_topic: str
+    needs: Set[ServiceNeed]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class DiscoverEvent(OrbEvent):
     content: DiscoverEventContent
     event_type = WellKnownEventType.DISCOVER.value

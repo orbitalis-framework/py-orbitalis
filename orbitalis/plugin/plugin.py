@@ -1,23 +1,43 @@
-import asyncio
-from typing import FrozenSet, override
+from typing import FrozenSet, override, Set
 from abc import ABC
 from dataclasses import dataclass, field
 
 from orbitalis.core.descriptor import CoreDescriptor
-from orbitalis.descriptor.descriptors_manager import DescriptorsManager
+from orbitalis.events.handshake.offer import OfferEvent, OfferEventContent
+from orbitalis.orb.descriptor.descriptors_manager import DescriptorsManager
 from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
 from orbitalis.orb.orb import Orb
 from orbitalis.plugin.configuration import PluginConfiguration
 from orbitalis.plugin.descriptor import PluginDescriptor
+from orbitalis.plugin.handler.handshake import DiscoverHandler, ReplyHandler
+from orbitalis.plugin.plug.pending import CorePendingRequest
 from orbitalis.plugin.state.running import Running
-from orbitalis.state_machine.state_machine import StateMachine, State
+from orbitalis.state_machine.state_machine import StateMachine
 
 
-@dataclass(kw_only=True, frozen=True)
+@dataclass(kw_only=True)
 class Plugin(Orb, StateMachine, ABC):
+    """
+
+    Author: Nicola Ricciardi
+    """
+
     configuration: PluginConfiguration = field(default_factory=PluginConfiguration)
     categories: FrozenSet[str] = field(default_factory=frozenset)
     core_descriptors: DescriptorsManager = field(default_factory=DescriptorsManager)
+    pending_requests: Set[CorePendingRequest] = field(default_factory=set)
+
+    def __post_init__(self):
+        self._discover_handler = DiscoverHandler(self)
+        self._reply_handler = ReplyHandler(self)
+
+    @property
+    def discover_handler(self) -> DiscoverHandler:
+        return self._discover_handler
+
+    @property
+    def reply_handler(self) -> ReplyHandler:
+        return self._reply_handler
 
     @override
     async def _internal_start(self, *args, **kwargs):
@@ -28,28 +48,50 @@ class Plugin(Orb, StateMachine, ABC):
         # TODO: gestione eccezioni
         # TODO: gestione on_event
 
-        # unsubscribe from previous
-        await self.eventbus_client.unsubscribe(WellKnownHandShakeTopic.build_discover_topic())
-
-        if self.configuration.allowlist is not None:
-            tasks = [self.eventbus_client.subscribe(WellKnownHandShakeTopic.build_discover_topic(core_id)) for core_id in self.configuration.allowlist]
-            await asyncio.gather(*tasks)
-
-        else:
-            await self.eventbus_client.subscribe(WellKnownHandShakeTopic.build_discover_topic())
+        await self.eventbus_client.subscribe(WellKnownHandShakeTopic.DISCOVER_TOPIC)
 
     def is_core_compatible(self, core_descriptor: CoreDescriptor) -> bool:
 
-        if self.configuration.maximum - len(self.core_descriptors) <= 0:
+        if self.configuration.acceptance_policy.maximum - len(self.core_descriptors) <= 0:
             return False
 
-        if self.configuration.blocklist is not None and core_descriptor.identifier in self.configuration.blocklist:
+        if (self.configuration.acceptance_policy.blocklist is not None
+                and core_descriptor.identifier in self.configuration.acceptance_policy.blocklist):
             return False
 
-        if self.configuration.allowlist is not None and core_descriptor.identifier not in self.configuration.allowlist:
+        if (self.configuration.acceptance_policy.allowlist is not None
+                and core_descriptor.identifier not in self.configuration.acceptance_policy.allowlist):
             return False
 
         return True
+
+
+    async def send_offer(self, offer_topic: str, core_descriptor: CoreDescriptor):
+
+        reply_topic: str = WellKnownHandShakeTopic.build_reply_topic(
+            core_identifier=core_descriptor.identifier,
+            plugin_identifier=self.context.identifier
+        )
+
+        await self.context.eventbus_client.subscribe(
+            topic=reply_topic,
+            handler=self.context.reply_handler
+        )
+
+        await self.context.eventbus_client.publish(
+            topic=offer_topic,
+            event=OfferEvent(content=OfferEventContent(
+                plugin_descriptor=self.context.generate_descriptor(),
+                allowlist=self.configuration.acceptance_policy.allowlist,
+                blocklist=self.configuration.acceptance_policy.blocklist,
+                reply_topic=reply_topic
+            ))
+        )
+
+        self.context.pending_requests.add(CorePendingRequest(
+            core_descriptor=core_descriptor,
+            related_topics=set(reply_topic)
+        ))
 
     def generate_descriptor(self) -> PluginDescriptor:
         return PluginDescriptor(

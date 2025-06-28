@@ -11,13 +11,11 @@ class WellKnownHandShakeTopic:
 
     _all_topic_wildcard: str = "*"
 
-    @classmethod
-    def build_discover_topic(cls, core_identifier: Optional[str] = None) -> str:
-        """
-        CORE ---discover---> PLUGIN
-        """
+    """
+    CORE ---discover---> PLUGIN
+    """
+    DISCOVER_TOPIC = "$handshake.discover"
 
-        return f"$handshake.{core_identifier if core_identifier is not None else cls._all_topic_wildcard}.discover"
 
     @classmethod
     def build_offer_topic(cls, core_identifier: str) -> str:
@@ -27,6 +25,23 @@ class WellKnownHandShakeTopic:
 
         return f"$handshake.{core_identifier}.offer"
 
+
+    @classmethod
+    def build_reply_topic(cls, core_identifier: str, plugin_identifier: str) -> str:
+        """
+        CORE ---reply---> PLUGIN
+        """
+
+        return f"$handshake.{core_identifier}.{plugin_identifier}.reply"
+
+
+    @classmethod
+    def build_response_topic(cls, core_identifier: str, plugin_identifier: str) -> str:
+        """
+        CORE <---response--- PLUGIN
+        """
+
+        return f"$handshake.{core_identifier}.{plugin_identifier}.response"
 
 
     # PLUG_OFFER = Topic("$plug-offer", description="CORE <---offer--- PLUGIN", content_type="application/json")

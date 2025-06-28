@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Dict, Set, Optional
-from orbitalis.descriptor.descriptor import Descriptor
-from orbitalis.descriptor.descriptors_manager import DescriptorsManager
+from orbitalis.orb.descriptor.descriptors_manager import DescriptorsManager
 from orbitalis.plugin.descriptor import PluginDescriptor
 
 

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Dict
-from orbitalis.descriptor.descriptor import Descriptor
+from orbitalis.orb.descriptor.descriptor import Descriptor
 
 
 @dataclass

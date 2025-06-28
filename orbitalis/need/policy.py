@@ -3,7 +3,7 @@ from typing import Dict, Optional, Set
 
 
 @dataclass
-class Need:
+class Policy:
     """
     min: minimum number of Orbs
     max: maximum number of Orbs
@@ -26,3 +26,14 @@ class Need:
         if self.allowlist is not None and self.blocklist is not None:
             raise ValueError("allowlist and blocklist can not be used together")
 
+    def slot_available(self) -> bool:
+        return self.maximum > 0
+
+    def is_compliance(self, identifier: str) -> bool:
+        if self.blocklist is not None and identifier in self.blocklist:
+            return False
+
+        if self.allowlist is not None and identifier not in self.allowlist:
+            return False
+
+        return True
