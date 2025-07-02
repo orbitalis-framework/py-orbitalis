@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from orbitalis.orb.descriptor import Descriptor
+from orbitalis.orb.descriptor.descriptor import Descriptor
 
 
 @dataclass(frozen=True, kw_only=True)

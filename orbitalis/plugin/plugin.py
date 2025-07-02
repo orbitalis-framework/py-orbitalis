@@ -1,9 +1,9 @@
-from typing import FrozenSet, override, Set
+from typing import FrozenSet, override, Set, Dict
 from abc import ABC
 from dataclasses import dataclass, field
 
 from orbitalis.core.descriptor import CoreDescriptor
-from orbitalis.events.handshake.offer import OfferEvent, OfferEventContent
+from orbitalis.events.handshake.offer import OfferMessage
 from orbitalis.orb.descriptor.descriptors_manager import DescriptorsManager
 from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
 from orbitalis.orb.orb import Orb
@@ -23,9 +23,9 @@ class Plugin(Orb, StateMachine, ABC):
     """
 
     configuration: PluginConfiguration = field(default_factory=PluginConfiguration)
-    categories: FrozenSet[str] = field(default_factory=frozenset)
-    core_descriptors: DescriptorsManager = field(default_factory=DescriptorsManager)
-    pending_requests: Set[CorePendingRequest] = field(default_factory=set)
+    core_descriptors: DescriptorsManager = field(default_factory=DescriptorsManager, init=False)
+    pending_requests: Set[CorePendingRequest] = field(default_factory=set, init=False)
+    features: Dict[str, PluginFeature] = field(default_factory=dict, init=False)
 
     def __post_init__(self):
         self._discover_handler = DiscoverHandler(self)
@@ -38,6 +38,8 @@ class Plugin(Orb, StateMachine, ABC):
     @property
     def reply_handler(self) -> ReplyHandler:
         return self._reply_handler
+
+    def add_feature(self, feature: F):
 
     @override
     async def _internal_start(self, *args, **kwargs):
@@ -70,25 +72,25 @@ class Plugin(Orb, StateMachine, ABC):
 
         reply_topic: str = WellKnownHandShakeTopic.build_reply_topic(
             core_identifier=core_descriptor.identifier,
-            plugin_identifier=self.context.identifier
+            plugin_identifier=self.identifier
         )
 
-        await self.context.eventbus_client.subscribe(
+        await self.eventbus_client.subscribe(
             topic=reply_topic,
-            handler=self.context.reply_handler
+            handler=self.reply_handler
         )
 
-        await self.context.eventbus_client.publish(
+        await self.eventbus_client.publish(
             topic=offer_topic,
-            event=OfferEvent(content=OfferEventContent(
-                plugin_descriptor=self.context.generate_descriptor(),
+            event=OfferMessage(
+                plugin_descriptor=self.generate_descriptor(),
                 allowlist=self.configuration.acceptance_policy.allowlist,
                 blocklist=self.configuration.acceptance_policy.blocklist,
                 reply_topic=reply_topic
-            ))
+            ).into_event()
         )
 
-        self.context.pending_requests.add(CorePendingRequest(
+        self.pending_requests.add(CorePendingRequest(
             core_descriptor=core_descriptor,
             related_topics=set(reply_topic)
         ))
@@ -96,7 +98,7 @@ class Plugin(Orb, StateMachine, ABC):
     def generate_descriptor(self) -> PluginDescriptor:
         return PluginDescriptor(
             identifier=self.identifier,
-            categories=self.categories
+            categories=self.configuration.categories
         )
 
 

@@ -1,9 +1,9 @@
 from dataclasses import dataclass, field
-from typing import Optional
-from orbitalis.need.policy import Policy
+from typing import Optional, FrozenSet
+from orbitalis.utils.policy import Policy
 
 
-@dataclass
+@dataclass(frozen=True)
 class PluginConfiguration:
     """
 
@@ -11,4 +11,4 @@ class PluginConfiguration:
     """
 
     acceptance_policy: Policy
-    
+    categories: FrozenSet[str] = field(default_factory=frozenset)

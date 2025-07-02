@@ -1,24 +1,19 @@
 from dataclasses import dataclass
 from typing import override, TYPE_CHECKING
 from busline.client.subscriber.event_handler.event_handler import EventHandler
-from orbitalis.events.handshake.discover import DiscoverEvent
-from orbitalis.events.handshake.offer import OfferEvent, OfferEventContent
-from orbitalis.events.handshake.reply import ReplyEvent
+from orbitalis.events.handshake.discover import DiscoverMessage
+from orbitalis.events.handshake.offer import OfferMessage
+from orbitalis.events.handshake.reply import ReplyMessage
 from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
+from orbitalis.plugin.handler.plugin_handler import PluginHandler
 from orbitalis.plugin.plug.pending import CorePendingRequest
-
-if TYPE_CHECKING:
-    from orbitalis.plugin.plugin import Plugin
 
 
 @dataclass
-class DiscoverHandler(EventHandler):
-
-    context: 'Plugin'
-
+class DiscoverHandler(PluginHandler):
 
     @override
-    async def handle(self, topic: str, event: DiscoverEvent):
+    async def handle(self, topic: str, event: DiscoverMessage):
 
         # TODO: use priority to disconnect from a low priority core, if high priority core incomes
 
@@ -31,11 +26,9 @@ class DiscoverHandler(EventHandler):
 
 
 @dataclass
-class ReplyHandler(EventHandler):
-
-    context: 'Plugin'
+class ReplyHandler(PluginHandler):
 
     @override
-    async def handle(self, topic: str, event: ReplyEvent):
+    async def handle(self, topic: str, event: ReplyMessage):
         # TODO
         pass

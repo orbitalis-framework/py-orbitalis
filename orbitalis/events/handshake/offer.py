@@ -1,15 +1,18 @@
 from dataclasses import dataclass, field
 from typing import Set, Optional
 
+from busline.event import registry
+from busline.event.avro_payload import AvroEventPayload
+
 from orbitalis.core.configuration import ServiceNeed
 from orbitalis.core.descriptor import CoreDescriptor
-from orbitalis.events.orb_event import OrbEvent
 from orbitalis.events.wellknown_event import WellKnownEventType
 from orbitalis.plugin.descriptor import PluginDescriptor
 
 
 @dataclass(frozen=True)
-class OfferEventContent:
+@registry
+class OfferMessage(AvroEventPayload):
     """
 
     TODO
@@ -22,10 +25,3 @@ class OfferEventContent:
     allowlist: Optional[Set[str]] = field(default=None)
     blocklist: Optional[Set[str]] = field(default=None)
     # TODO: interface
-
-
-@dataclass(frozen=True, kw_only=True)
-class OfferEvent(OrbEvent):
-    content: OfferEventContent
-    event_type = WellKnownEventType.OFFER.value
-

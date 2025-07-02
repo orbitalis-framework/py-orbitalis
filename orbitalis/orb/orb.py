@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 
 from busline.client.pubsub_client import PubTopicSubClient
 
-from orbitalis.orb.descriptor import GenerateDescriptorMixin
 import uuid
 
+from orbitalis.orb.descriptor.descriptor import GenerateDescriptorMixin
 from orbitalis.orb.state.state import Stopped, Created
 from orbitalis.state_machine.state_machine import StateMachine
 

@@ -7,7 +7,7 @@ from orbitalis.core.descriptor import CoreDescriptor
 from orbitalis.core.handler.handshake import OfferHandler, ResponseHandler
 from orbitalis.core.plug.pending import PluginPendingRequest
 from orbitalis.core.plugin_descriptor_manager import PluginDescriptorsManager
-from orbitalis.events.handshake.discover import DiscoverEvent, DiscoverEventContent
+from orbitalis.events.handshake.discover import DiscoverMessage
 from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
 from orbitalis.orb.orb import Orb
 import copy
@@ -125,15 +125,6 @@ class Core(Orb, ABC):
 
         offer_topic: str = WellKnownHandShakeTopic.build_offer_topic(self.identifier)
 
-        discover_event = DiscoverEvent(
-            content=DiscoverEventContent(
-                core_descriptor=self.generate_descriptor(),
-                needs=needs_set,
-                offer_topic=offer_topic
-            )
-        )
-
-
         await self.eventbus_client.subscribe(
             topic=offer_topic,
             handler=self._offer_handler
@@ -141,7 +132,11 @@ class Core(Orb, ABC):
 
         await self.eventbus_client.publish(
             WellKnownHandShakeTopic.DISCOVER_TOPIC,
-            discover_event
+            DiscoverMessage(
+                core_descriptor=self.generate_descriptor(),
+                needs=needs_set,
+                offer_topic=offer_topic
+            ).into_event()
         )
 
 

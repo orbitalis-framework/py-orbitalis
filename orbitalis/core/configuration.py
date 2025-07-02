@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional, Set, Dict
-from orbitalis.need.policy import Policy
+from orbitalis.utils.policy import Policy
 from orbitalis.plugin.descriptor import PluginDescriptor
 
 

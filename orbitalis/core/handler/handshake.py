@@ -3,8 +3,8 @@ from typing import override, TYPE_CHECKING
 from busline.client.subscriber.event_handler.event_handler import EventHandler
 
 from orbitalis.core.plug.pending import PluginPendingRequest
-from orbitalis.events.handshake.offer import OfferEvent, OfferEventContent
-from orbitalis.events.handshake.reply import ReplyEvent, ReplyEventContent
+from orbitalis.events.handshake.offer import OfferEvent, OfferMessage
+from orbitalis.events.handshake.reply import ReplyEvent, ReplyMessage
 from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
 
 if TYPE_CHECKING:
@@ -35,9 +35,9 @@ class OfferHandler(EventHandler):
             await self.context.eventbus_client.publish(
                 topic=event.content.reply_topic,
                 event=ReplyEvent(
-                    content=ReplyEventContent(
+                    content=ReplyMessage(
                         plug_request=True,
-                        description="I need you",
+                        description="I utils you",
                         response_topic=response_topic
                     )
                 )
@@ -54,7 +54,7 @@ class OfferHandler(EventHandler):
             await self.context.eventbus_client.publish(
                 topic=event.content.reply_topic,
                 event=ReplyEvent(
-                    content=ReplyEventContent(
+                    content=ReplyMessage(
                         plug_request=False,
                         description="Not needed anymore, sorry",
                     )
