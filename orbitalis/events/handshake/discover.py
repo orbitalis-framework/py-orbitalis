@@ -1,12 +1,12 @@
 from dataclasses import dataclass
-from typing import Set
+from typing import Dict
 
-from busline.event import registry
+from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
-
-from orbitalis.core.configuration import ServiceNeed
+from orbitalis.core.core_service import CoreServiceNeed
 from orbitalis.core.descriptor import CoreDescriptor
-from orbitalis.events.wellknown_event import WellKnownEventType
+
+
 
 
 @dataclass(frozen=True)
@@ -21,4 +21,4 @@ class DiscoverMessage(AvroEventPayload):
 
     core_descriptor: CoreDescriptor
     offer_topic: str
-    needs: Set[ServiceNeed]
+    needs: Dict[str, CoreServiceNeed]   # service_name => need

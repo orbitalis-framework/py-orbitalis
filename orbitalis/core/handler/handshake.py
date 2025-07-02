@@ -1,30 +1,34 @@
 from dataclasses import dataclass
-from typing import override, TYPE_CHECKING
-from busline.client.subscriber.event_handler.event_handler import EventHandler
+from typing import override, Dict
+
+from dataclasses_avroschema import AvroModel
+
+from busline.client.subscriber.event_handler.schemafull_handler import SchemafullEventHandler
+from busline.event.event import Event
+from orbitalis.core.of_core import OfCoreMixin
 
 from orbitalis.core.plug.pending import PluginPendingRequest
-from orbitalis.events.handshake.offer import OfferEvent, OfferMessage
-from orbitalis.events.handshake.reply import ReplyEvent, ReplyMessage
+from orbitalis.events.handshake.offer import OfferMessage
+from orbitalis.events.handshake.reply import ReplyMessage
+from orbitalis.events.handshake.response import ResponseMessage
 from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
-
-if TYPE_CHECKING:
-    from orbitalis.core.core import Core
 
 
 @dataclass
-class OfferHandler(EventHandler):
+class OfferHandler(SchemafullEventHandler, OfCoreMixin):
 
-    context: 'Core'
 
+    def input_schema(self) -> Dict:
+        return AvroModel.avro_schema_to_python(OfferMessage)
 
     @override
-    async def handle(self, topic: str, event: OfferEvent):
+    async def handle(self, topic: str, event: Event[OfferMessage]):
 
-        if self.context.is_plugin_needed_and_pluggable(event.content.plugin_descriptor):
+        if self.context.is_plugin_needed_and_pluggable(event.payload.plugin_descriptor):
 
             response_topic: str = WellKnownHandShakeTopic.build_response_topic(
                 self.context.identifier,
-                event.content.plugin_descriptor.identifier
+                event.payload.plugin_descriptor.identifier
             )
 
             await self.context.eventbus_client.subscribe(
@@ -33,40 +37,39 @@ class OfferHandler(EventHandler):
             )
 
             await self.context.eventbus_client.publish(
-                topic=event.content.reply_topic,
-                event=ReplyEvent(
-                    content=ReplyMessage(
-                        plug_request=True,
-                        description="I utils you",
-                        response_topic=response_topic
-                    )
-                )
+                topic=event.payload.reply_topic,
+                event=ReplyMessage(
+                    core_identifier=self.context.identifier,
+                    plug_request=True,
+                    description="I need you",
+                    response_topic=response_topic
+                ).into_event()
             )
 
             self.context.pending_requests.add(
                 PluginPendingRequest(
-                    plugin_descriptor=event.content.plugin_descriptor,
+                    plugin_descriptor=event.payload.plugin_descriptor,
                     related_topics=set(response_topic)
                 )
             )
 
         else:
             await self.context.eventbus_client.publish(
-                topic=event.content.reply_topic,
-                event=ReplyEvent(
-                    content=ReplyMessage(
-                        plug_request=False,
-                        description="Not needed anymore, sorry",
-                    )
-                )
+                topic=event.payload.reply_topic,
+                event=ReplyMessage(
+                    core_identifier=self.context.identifier,
+                    plug_request=False,
+                    description="Not needed anymore, sorry",
+                ).into_event()
             )
 
 @dataclass
-class ResponseHandler(EventHandler):
+class ResponseHandler(SchemafullEventHandler, OfCoreMixin):
 
-    context: 'Core'
+    def input_schema(self) -> Dict:
+        return AvroModel.avro_schema_to_python(ResponseMessage)
 
     @override
-    async def handle(self, topic: str, event: OfferEvent):
+    async def handle(self, topic: str, event: Event[ResponseMessage]):
         # TODO
         pass

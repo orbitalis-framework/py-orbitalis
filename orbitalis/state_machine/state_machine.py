@@ -14,12 +14,8 @@ class StateMachine(ABC):
 
     @state.setter
     def state(self, s: State):
-        self.set_state(s)
-
-    def set_state(self, s: State):
-        logging.info(f"{self}: {self.__state.name} --> {s.name}")
+        logging.info(f"{self}: {self.__state.name if self.__state is not None else 'None'} --> {s.name}")
         self.__state = s
-
 
 
 @dataclass

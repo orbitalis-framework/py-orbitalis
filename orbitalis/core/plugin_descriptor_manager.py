@@ -9,7 +9,7 @@ class PluginDescriptorsManager(DescriptorsManager):
     descriptors_by_tag: Dict[str, Set[PluginDescriptor]] = field(default_factory=dict)
 
     def add_descriptor(self, descriptor: PluginDescriptor):
-        self.add_descriptor(descriptor)
+        super().add_descriptor(descriptor)
         for tag in descriptor.categories:
             self.descriptors_by_tag[tag].add(descriptor)
 

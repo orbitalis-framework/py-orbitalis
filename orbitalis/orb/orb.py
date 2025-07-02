@@ -18,8 +18,8 @@ class Orb(GenerateDescriptorMixin, StateMachine, ABC):
     eventbus_client: PubTopicSubClient
 
 
-    def __init__(self):
-        self.set_state(Created(self))
+    def __post_init__(self):
+        self.state = Created(self)
 
     async def start(self, *args, **kwargs):
         logging.info(f"{self}: starting...")
@@ -61,7 +61,7 @@ class Orb(GenerateDescriptorMixin, StateMachine, ABC):
         """
 
     async def _internal_stop(self, *args, **kwargs):
-        self.set_state(Stopped(self))
+        self.state = Stopped(self)
 
     async def on_stopped(self, *args, **kwargs):
         """

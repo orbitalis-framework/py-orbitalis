@@ -1,7 +1,8 @@
-from typing import FrozenSet, override, Set, Dict
+from typing import FrozenSet, override, Set, Dict, Self
 from abc import ABC
 from dataclasses import dataclass, field
 
+from busline.client.subscriber.event_handler.schemafull_handler import SchemafullEventHandler
 from orbitalis.core.descriptor import CoreDescriptor
 from orbitalis.events.handshake.offer import OfferMessage
 from orbitalis.orb.descriptor.descriptors_manager import DescriptorsManager
@@ -13,10 +14,11 @@ from orbitalis.plugin.handler.handshake import DiscoverHandler, ReplyHandler
 from orbitalis.plugin.plug.pending import CorePendingRequest
 from orbitalis.plugin.state.running import Running
 from orbitalis.state_machine.state_machine import StateMachine
+from orbitalis.utils.service import Feature, Service
 
 
 @dataclass(kw_only=True)
-class Plugin(Orb, StateMachine, ABC):
+class Plugin(Orb, StateMachine, Service, ABC):
     """
 
     Author: Nicola Ricciardi
@@ -24,8 +26,7 @@ class Plugin(Orb, StateMachine, ABC):
 
     configuration: PluginConfiguration = field(default_factory=PluginConfiguration)
     core_descriptors: DescriptorsManager = field(default_factory=DescriptorsManager, init=False)
-    pending_requests: Set[CorePendingRequest] = field(default_factory=set, init=False)
-    features: Dict[str, PluginFeature] = field(default_factory=dict, init=False)
+    pending_requests: Dict[str, CorePendingRequest] = field(default_factory=dict, init=False)   # core_identifier => CorePendingRequest
 
     def __post_init__(self):
         self._discover_handler = DiscoverHandler(self)
@@ -39,12 +40,10 @@ class Plugin(Orb, StateMachine, ABC):
     def reply_handler(self) -> ReplyHandler:
         return self._reply_handler
 
-    def add_feature(self, feature: F):
-
     @override
     async def _internal_start(self, *args, **kwargs):
         await super()._internal_start(*args, **kwargs)
-        self.set_state(await Running.create(self))
+        self.state = await Running.create(self)
 
     async def subscribe_on_discover(self):
         # TODO: gestione eccezioni
@@ -52,9 +51,15 @@ class Plugin(Orb, StateMachine, ABC):
 
         await self.eventbus_client.subscribe(WellKnownHandShakeTopic.DISCOVER_TOPIC)
 
-    def is_core_compatible(self, core_descriptor: CoreDescriptor) -> bool:
+    def can_plug_into_core(self, core_descriptor: CoreDescriptor) -> bool:
 
-        if self.configuration.acceptance_policy.maximum - len(self.core_descriptors) <= 0:
+        available_slots: int = self.configuration.acceptance_policy.maximum
+
+        available_slots -= len(self.core_descriptors)       # already plugged
+
+        available_slots -= len(self.pending_requests)       # pending requests
+
+        if available_slots <= 0:
             return False
 
         if (self.configuration.acceptance_policy.blocklist is not None
@@ -67,6 +72,8 @@ class Plugin(Orb, StateMachine, ABC):
 
         return True
 
+    async def plug_into_core(self, core_descriptor: CoreDescriptor):
+        pass    # TODO
 
     async def send_offer(self, offer_topic: str, core_descriptor: CoreDescriptor):
 
@@ -90,15 +97,21 @@ class Plugin(Orb, StateMachine, ABC):
             ).into_event()
         )
 
-        self.pending_requests.add(CorePendingRequest(
+        self.pending_requests[core_descriptor.identifier] = CorePendingRequest(
             core_descriptor=core_descriptor,
             related_topics=set(reply_topic)
-        ))
+        )
 
+    @override
+    def add_context_to_feature(self, feature: Feature[Self]):
+        feature.context = self
+
+    @override
     def generate_descriptor(self) -> PluginDescriptor:
         return PluginDescriptor(
             identifier=self.identifier,
-            categories=self.configuration.categories
+            categories=self.configuration.categories,
+            features=self.generate_features_description()
         )
 
 
