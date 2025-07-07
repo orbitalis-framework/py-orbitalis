@@ -1,6 +1,6 @@
 from dataclasses import dataclass
-from typing import override, TYPE_CHECKING, Self
-from busline.client.subscriber.event_handler.event_handler import EventHandler
+from typing import TYPE_CHECKING, Self
+from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
 from abc import ABC
 
 if TYPE_CHECKING:

@@ -4,7 +4,7 @@ from typing import override, Dict
 
 from dataclasses_avroschema import AvroModel
 
-from busline.client.subscriber.event_handler.schemafull_handler import SchemafullEventHandler
+from busline.client.subscriber.topic_subscriber.event_handler.schemafull_handler import SchemafullEventHandler
 from busline.event.event import Event
 from orbitalis.events.handshake.discover import DiscoverMessage
 from orbitalis.events.handshake.reply import ReplyMessage

@@ -3,6 +3,7 @@ from typing import Dict
 
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
+from orbitalis.core.configuration import ConstrainedNeed
 from orbitalis.core.core_service import CoreServiceNeed
 from orbitalis.core.descriptor import CoreDescriptor
 
@@ -19,6 +20,6 @@ class DiscoverMessage(AvroEventPayload):
     Author: Nicola Ricciardi
     """
 
-    core_descriptor: CoreDescriptor
+    core_identifier: str
     offer_topic: str
-    needs: Dict[str, CoreServiceNeed]   # service_name => need
+    needs: Dict[str, ConstrainedNeed]   # operation_name => ConstrainedNeed

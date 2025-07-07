@@ -1,34 +1,29 @@
-from typing import FrozenSet, override, Set, Dict, Self
+from typing import override, Self
 from abc import ABC
 from dataclasses import dataclass, field
 
-from busline.client.subscriber.event_handler.schemafull_handler import SchemafullEventHandler
 from orbitalis.core.descriptor import CoreDescriptor
 from orbitalis.events.handshake.offer import OfferMessage
-from orbitalis.orb.descriptor.descriptors_manager import DescriptorsManager
 from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
 from orbitalis.orb.orb import Orb
 from orbitalis.plugin.configuration import PluginConfiguration
 from orbitalis.plugin.descriptor import PluginDescriptor
 from orbitalis.plugin.handler.handshake import DiscoverHandler, ReplyHandler
-from orbitalis.plugin.plug.pending import CorePendingRequest
-from orbitalis.plugin.state.running import Running
+from orbitalis.plugin.state import PluginState
 from orbitalis.state_machine.state_machine import StateMachine
-from orbitalis.utils.service import Feature, Service
 
 
 @dataclass(kw_only=True)
-class Plugin(Orb, StateMachine, Service, ABC):
+class Plugin(Orb, StateMachine, ABC):
     """
 
     Author: Nicola Ricciardi
     """
 
     configuration: PluginConfiguration = field(default_factory=PluginConfiguration)
-    core_descriptors: DescriptorsManager = field(default_factory=DescriptorsManager, init=False)
-    pending_requests: Dict[str, CorePendingRequest] = field(default_factory=dict, init=False)   # core_identifier => CorePendingRequest
 
     def __post_init__(self):
+        self.state = PluginState.CREATED
         self._discover_handler = DiscoverHandler(self)
         self._reply_handler = ReplyHandler(self)
 
@@ -43,13 +38,15 @@ class Plugin(Orb, StateMachine, Service, ABC):
     @override
     async def _internal_start(self, *args, **kwargs):
         await super()._internal_start(*args, **kwargs)
-        self.state = await Running.create(self)
+
+        await self.subscribe_on_discover()
+        self.state = PluginState.RUNNING
 
     async def subscribe_on_discover(self):
         # TODO: gestione eccezioni
         # TODO: gestione on_event
 
-        await self.eventbus_client.subscribe(WellKnownHandShakeTopic.DISCOVER_TOPIC)
+        await self.eventbus_client.subscribe(self.configuration.discover_topic)
 
     def can_plug_into_core(self, core_descriptor: CoreDescriptor) -> bool:
 

@@ -10,5 +10,6 @@ class PluginConfiguration:
     Author: Nicola Ricciardi
     """
 
+    discover_topic: str
     acceptance_policy: Optional[Policy] = field(default=None)
     categories: FrozenSet[str] = field(default_factory=frozenset)

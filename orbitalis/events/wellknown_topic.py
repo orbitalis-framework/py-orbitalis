@@ -23,7 +23,7 @@ class WellKnownHandShakeTopic:
         CORE <---offer--- PLUGIN
         """
 
-        return f"$handshake.{core_identifier}.offer"
+
 
 
     @classmethod

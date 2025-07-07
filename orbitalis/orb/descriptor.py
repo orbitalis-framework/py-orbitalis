@@ -1,13 +1,10 @@
 from dataclasses import dataclass, field
+from abc import ABC, abstractmethod
 import datetime
-from typing import Set
-from abc import ABC
 
 
-@dataclass(frozen=True)
-class Plug(ABC):
+@dataclass(frozen=True, kw_only=True)
+class Descriptor(ABC):
+    identifier: str
     created_at: float = field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).timestamp())
-    related_topics: Set[str] = field(default_factory=set)
-
-
 

@@ -1,12 +1,9 @@
-from dataclasses import dataclass
-from typing import override, Self
-
-from orbitalis.orb.state import OrbState
+from enum import StrEnum
 
 
-@dataclass
-class NonCompliance(OrbState):
+class CoreState(StrEnum):
+    CREATED = "CREATED"
+    NOT_COMPLIANT = "NOT_COMPLIANT"
+    COMPLIANT = "COMPLIANT"
+    STOPPED = "STOPPED"
 
-    @override
-    async def handle(self, *args, **kwargs) -> Self:
-        pass
