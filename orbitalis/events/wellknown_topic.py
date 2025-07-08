@@ -11,10 +11,13 @@ class WellKnownHandShakeTopic:
 
     _all_topic_wildcard: str = "*"
 
-    """
-    CORE ---discover---> PLUGIN
-    """
-    DISCOVER_TOPIC = "$handshake.discover"
+    @classmethod
+    def discover_topic(cls) -> str:
+        """
+        CORE ---discover---> PLUGIN
+        """
+
+        return "$handshake.discover"
 
 
     @classmethod
@@ -23,8 +26,7 @@ class WellKnownHandShakeTopic:
         CORE <---offer--- PLUGIN
         """
 
-
-
+        return f"$handshake.{core_identifier}.offer"
 
     @classmethod
     def build_reply_topic(cls, core_identifier: str, plugin_identifier: str) -> str:

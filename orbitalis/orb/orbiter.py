@@ -9,22 +9,8 @@ from orbitalis.orb.descriptor import Descriptor
 from orbitalis.state_machine.state_machine import StateMachine
 
 
-D = TypeVar('D', bound=Descriptor)
-
-
-@dataclass(frozen=True)
-class RemoteOperation:
-    request_topics: List[str]
-    request_schema: Dict
-    response_topics: List[str]
-
-@dataclass(frozen=True)
-class OrbHook:
-    topics: List[str]
-
-
 @dataclass(kw_only=True)
-class Orb(Generic[D], ABC):
+class Orbiter(Generic[D], ABC):
     """
 
     Author: Nicola Ricciardi
@@ -33,11 +19,6 @@ class Orb(Generic[D], ABC):
     eventbus_client: PubTopicSubClient
 
     identifier: str = field(default_factory=lambda: str(uuid.uuid4()))
-    pending_requests: Dict[str, datetime] = field(default_factory=dict, init=False)     # identifier => when
-    connections: Dict[str, datetime] = field(default_factory=dict, init=False) # identifier => when
-    descriptors: Dict[str, D]
-    remote_operations: Dict[str, Dict[str, RemoteOperation]] = field(default=dict)    # method_name => { identifier => RemoteOperation }
-    hooks: Dict[str, Dict[str, OrbHook]] = field(default=dict)    # hook_name => { identifier => OrbHook }
 
 
     def discard_expired_pending_requests(self, /, expiration_date: Optional[datetime] = None, seconds: Optional[float] = None) -> int:

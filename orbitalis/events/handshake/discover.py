@@ -3,11 +3,7 @@ from typing import Dict
 
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
-from orbitalis.core.configuration import ConstrainedNeed
-from orbitalis.core.core_service import CoreServiceNeed
-from orbitalis.core.descriptor import CoreDescriptor
-
-
+from orbitalis.core.need import ConstrainedNeed
 
 
 @dataclass(frozen=True)
