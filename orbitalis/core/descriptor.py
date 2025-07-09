@@ -1,14 +1,14 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Dict
-
-from orbitalis.orb.descriptor import Descriptor
 
 
 @dataclass(frozen=True, kw_only=True)
-class CoreDescriptor(Descriptor):
+class CoreDescriptor:
     """
 
     Author: Nicola Ricciardi
     """
 
-    services: Dict[str, Dict[str, Dict]]   # service_name => { feature_name => input_schema }
+    identifier: str
+    created_at: float = field(default_factory=lambda: datetime.now())

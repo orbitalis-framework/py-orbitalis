@@ -17,8 +17,10 @@ class RequestMessage(AvroEventPayload):
     Author: Nicola Ricciardi
     """
 
-    core_descriptor: CoreDescriptor
-    requested_operations: Dict[str, Optional[str]]      # operation_name => outcome topic
+    core_identifier: str
+    core_keepalive_topic: str
+    core_general_purpose_hook: str
+    requested_operations: Dict[str, str]      # operation_name => result_topic
     response_topic: Optional[str] = field(default=None)
 
     def __post_init__(self):

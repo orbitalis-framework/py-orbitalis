@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
-from typing import Optional, Set, Dict
+from typing import Optional, Set, Dict, List, Any
+
+from dataclasses_avroschema import AvroModel
 
 from orbitalis.utils.allowblocklist import AllowBlockPriorityListMixin
 
@@ -14,8 +16,8 @@ class Need:
 
     minimum: int = field(default=0)
     maximum: Optional[int] = field(default=None)
-    mandatory: Optional[Set[str]] = field(default=None)
-    schema: Optional[Dict] = field(default=None)
+    mandatory: Optional[List[str]] = field(default=None)
+    schema_fingerprint: Optional[str] = field(default=None)
 
     def __post_init__(self):
         if self.minimum < 0 or (self.maximum is not None and self.maximum < 0) \
@@ -23,11 +25,9 @@ class Need:
                 or (len(self.mandatory) > self.maximum):
             raise ValueError("minimum and/or maximum value are invalid")
 
-    def slot_available(self) -> bool:
-        return self.maximum > 0
 
 @dataclass
-class ConstrainedNeed(Need, AllowBlockPriorityListMixin):
+class ConstrainedNeed(Need, AllowBlockPriorityListMixin, AvroModel):
 
     def to_need(self) -> Need:
         return Need(

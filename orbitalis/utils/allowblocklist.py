@@ -1,6 +1,6 @@
 from dataclasses import dataclass,field
 from abc import ABC
-from typing import Optional, Dict, Set
+from typing import Optional, Dict, Set, List
 
 
 @dataclass
@@ -13,8 +13,8 @@ class AllowBlockPriorityListMixin(ABC):
     Author: Nicola Ricciardi
     """
 
-    allowlist: Optional[Set[str]] = field(default=None)
-    blocklist: Optional[Set[str]] = field(default=None)
+    allowlist: Optional[List[str]] = field(default=None)
+    blocklist: Optional[List[str]] = field(default=None)
     priority: Dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self):

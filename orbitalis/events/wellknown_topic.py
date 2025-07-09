@@ -2,7 +2,7 @@ from typing import Optional
 
 
 
-class WellKnownHandShakeTopic:
+class WellKnownTopic:
     """
 
 
@@ -45,11 +45,18 @@ class WellKnownHandShakeTopic:
 
         return f"$handshake.{core_identifier}.{plugin_identifier}.response"
 
+    @classmethod
+    def build_keepalive_topic(cls, identifier: str) -> str:
+        """
+        TODO
+        """
 
-    # PLUG_OFFER = Topic("$plug-offer", description="CORE <---offer--- PLUGIN", content_type="application/json")
-    # PLUG_REPLY = Topic("$plug-reply", description="CORE ---reply---> PLUGIN", content_type="application/json")
-    # PLUG_OUTCOME = Topic("$plug-outcome", description="CORE <---outcome--- PLUGIN", content_type="application/json")
-    #
-    # # === OTHERS ===
-    # KEEP_ALIVE = Topic("$keep-alive", description="PLUGIN ---keep alive---> CORE", content_type="application/json")
-    # UNPLUG = Topic("$unplug", description="PLUGIN <---unplug---> CORE", content_type="application/json")
+        return f"$keepalive.{identifier}"
+
+    @classmethod
+    def build_general_purpose_use_topic(cls, identifier: str) -> str:
+        """
+        TODO
+        """
+
+        return f"$hook.{identifier}"

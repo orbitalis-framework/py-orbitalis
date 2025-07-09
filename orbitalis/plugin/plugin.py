@@ -13,7 +13,7 @@ from orbitalis.core.descriptor import CoreDescriptor
 from orbitalis.events.handshake.discover import DiscoverMessage
 from orbitalis.events.handshake.offer import OfferMessage, OfferedOperation
 from orbitalis.events.handshake.reply import RequestMessage, RejectMessage
-from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
+from orbitalis.events.wellknown_topic import WellKnownTopic
 from orbitalis.core.need import ConstrainedNeed
 from orbitalis.orb.orbiter import Orbiter
 from orbitalis.plugin.operation import Operation
@@ -35,7 +35,7 @@ class Plugin(Orbiter, StateMachine, ABC):
     core_descriptors: Dict[str, CoreDescriptor] = field(default_factory=dict, init=False)       # core_identifier => CoreDescriptor
 
     # === CONFIGURATION parameters ===
-    discover_topic: str = field(default_factory=lambda: WellKnownHandShakeTopic.discover_topic())
+    discover_topic: str = field(default_factory=lambda: WellKnownTopic.discover_topic())
 
     def __post_init__(self):
         self.state = PluginState.CREATED
@@ -54,7 +54,7 @@ class Plugin(Orbiter, StateMachine, ABC):
 
         await self.eventbus_client.subscribe(self.discover_topic)
 
-    @schemafull_event_handler(AvroModel.avro_schema_to_python(DiscoverMessage))
+    @schemafull_event_handler(DiscoverMessage.avro_schema_to_python())
     async def discover_event_handler(self, topic: str, event: Event[DiscoverMessage]):
         # TODO: use priority to disconnect from a low priority core, if high priority core incomes
 
@@ -84,7 +84,7 @@ class Plugin(Orbiter, StateMachine, ABC):
 
 
     def build_reply_topic(self, core_identifier: str) -> str:
-        return WellKnownHandShakeTopic.build_reply_topic(core_identifier, self.identifier)
+        return WellKnownTopic.build_reply_topic(core_identifier, self.identifier)
 
     def build_operation_topic_for_core(self, core_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{core_identifier}.{self.identifier}"
@@ -125,8 +125,8 @@ class Plugin(Orbiter, StateMachine, ABC):
             self.pending_cores[core_identifier][operation_name] = datetime.now()
 
     @schemafull_event_handler([
-        AvroModel.avro_schema_to_python(RequestMessage),
-        AvroModel.avro_schema_to_python(RejectMessage)
+        RequestMessage.avro_schema_to_python(),
+        RejectMessage.avro_schema_to_python()
     ])
     async def reply_event_handler(self, topic: str, event: Event[RequestMessage | RejectMessage]):
         logging.info(f"{self}: new reply")

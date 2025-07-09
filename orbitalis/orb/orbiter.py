@@ -2,15 +2,13 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, TypeVar, Generic, List, Optional
+from typing import Dict, List, Optional
 from busline.client.pubsub_client import PubTopicSubClient
 import uuid
-from orbitalis.orb.descriptor import Descriptor
-from orbitalis.state_machine.state_machine import StateMachine
 
 
 @dataclass(kw_only=True)
-class Orbiter(Generic[D], ABC):
+class Orbiter(ABC):
     """
 
     Author: Nicola Ricciardi

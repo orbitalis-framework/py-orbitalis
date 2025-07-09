@@ -4,33 +4,21 @@ from typing import Dict
 
 from dataclasses_avroschema import AvroModel
 
+from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler
 from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
-from orbitalis.plugin.configuration import PluginConfiguration
+from orbitalis.core.need import ConstrainedNeed
+from orbitalis.plugin.operation import operation, Policy
 from orbitalis.plugin.plugin import Plugin
-from orbitalis.utils.policy import Policy
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
 from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
 from orbitalis.core.core import Core
-from orbitalis.core.core_service import CoreService, CoreServiceDescriptor, CoreServiceNeed
-from orbitalis.utils.policy import Policy
-from orbitalis.utils.service import Feature
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class MockMessage(AvroEventPayload):
+class MockOperationMessage(AvroEventPayload):
     pass
-
-
-@dataclass
-class MockFeature(Feature):
-
-    def input_schema(self) -> Dict:
-        return AvroModel.avro_schema_to_python(MockMessage)
-
-    async def handle(self, topic: str, event: Event[MockMessage]):
-        pass
 
 
 @dataclass
@@ -38,8 +26,21 @@ class MockCore(Core):
     pass
 
 
+@dataclass
 class MockPlugin(Plugin):
-    pass
+
+    operation_call: int = 0
+
+    @schemafull_event_handler(MockOperationMessage.avro_schema_to_python())
+    @operation
+    async def mock_operation1_event_handler(self, topic: str, event: Event[MockOperationMessage]):
+        self.operation_call += 1
+
+    @schemafull_event_handler(MockOperationMessage.avro_schema_to_python())
+    @operation(name="operation2", policy=Policy(maximum=1))
+    async def mock_operation2_event_handler(self, topic: str, event: Event[MockOperationMessage]):
+        self.operation_call += 1
+
 
 
 class TestPlugin(unittest.IsolatedAsyncioTestCase):
@@ -47,7 +48,6 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         self.plugin = MockPlugin(
-            identifier="plugin-id",
             eventbus_client=LocalPubTopicSubClientBuilder()\
                     .with_default_publisher()\
                     .with_closure_subscriber(lambda t, e: ...)\
@@ -55,42 +55,41 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         )
 
         self.core = MockCore(
-            services={
-                "test-service": CoreServiceDescriptor(
-                    service=CoreService(
-                        description="test service",
-                        features={
-                            "test-feature1": MockFeature()
-                        }
-                    ),
-                    mandatory=True,
-                    need=CoreServiceNeed(
-                        mandatory_plugins_by_identifier={ "plugin-id" }
-                    )
-                )
-            },
             eventbus_client=LocalPubTopicSubClientBuilder() \
                 .with_default_publisher() \
                 .with_closure_subscriber(lambda t, e: ...) \
                 .build(),
+            needed_operations={
+                "operation2": ConstrainedNeed()
+            }
         )
 
-    async def test_core_compliance(self):
-        self.assertFalse(self.core.is_compliance())
-
-        self.core.plug("test-service", self.plugin.generate_descriptor())
-
-        self.assertTrue(self.core.is_compliance())
+        self.core2 = MockCore(
+            eventbus_client=LocalPubTopicSubClientBuilder() \
+                .with_default_publisher() \
+                .with_closure_subscriber(lambda t, e: ...) \
+                .build(),
+            needed_operations={
+                "operation2": ConstrainedNeed()
+            }
+        )
 
     async def test_handshake(self):
         self.assertFalse(self.core.is_compliance())
+
         await self.plugin.start()
         await self.core.start()
 
-        await self.core.send_discover()
-
         await asyncio.sleep(2)
+
         self.assertTrue(self.core.is_compliance())
+
+
+        self.assertFalse(self.core2.is_compliance())
+
+        await self.core2.start()
+
+        self.assertFalse(self.core2.is_compliance())
 
 
 

@@ -1,4 +1,5 @@
 import random
+from collections import defaultdict
 from datetime import datetime
 import logging
 from dataclasses import dataclass, field
@@ -14,7 +15,7 @@ from orbitalis.events.handshake.discover import DiscoverMessage
 from orbitalis.events.handshake.offer import OfferMessage, OfferedOperation
 from orbitalis.events.handshake.reply import RequestMessage, RejectMessage
 from orbitalis.events.handshake.response import ResponseMessage
-from orbitalis.events.wellknown_topic import WellKnownHandShakeTopic
+from orbitalis.events.wellknown_topic import WellKnownTopic
 from orbitalis.core.need import Need, ConstrainedNeed
 from orbitalis.orb.orbiter import Orbiter
 
@@ -22,22 +23,38 @@ from orbitalis.plugin.descriptor import PluginDescriptor
 from orbitalis.state_machine.state_machine import StateMachine
 
 
+@dataclass(frozen=True)
+class PendingRequest:
+    operation_name: str
+    result_topic: str
+    when: datetime = field(default_factory=lambda: datetime.now())
+
+
+
 @dataclass(kw_only=True)
 class Core(Orbiter, StateMachine[CoreState]):
 
     # TODO: unify operation_plugin_topic and operation_needs
 
-    operation_plugin_topic: Dict[str, Dict[str, str]] = field(default_factory=dict, init=False)     # operation_name => { plugin_identifier => topic }
-    pending_plugins: Dict[str, Dict[str, datetime]] = field(default_factory=dict, init=False)       # plugin_identifier => { operation_name => when }
+    operation_plugin_topic: Dict[str, Dict[str, str]] = field(default_factory=lambda: defaultdict(dict), init=False)     # operation_name => { plugin_identifier => topic }
+    pending_plugins: Dict[str, Dict[str, PendingRequest]] = field(default_factory=dict, init=False)       # plugin_identifier => { operation_name => when }
     plugin_descriptors: Dict[str, PluginDescriptor] = field(default_factory=dict, init=False)       # plugin_identifier => PluginDescriptor
 
     # === CONFIGURATION parameters ===
-    discover_topic: str = field(default_factory=lambda: WellKnownHandShakeTopic.discover_topic())
+    discover_topic: str = field(default_factory=lambda: WellKnownTopic.discover_topic())
     discovering_interval: float = field(default=2)
-    operation_needs: Dict[str, ConstrainedNeed] = field(default_factory=dict)  # operation_name => Need
+    needed_operations: Dict[str, ConstrainedNeed] = field(default_factory=dict)  # operation_name => Need
 
     def __post_init__(self):
         self.state = CoreState.CREATED
+
+    @property
+    def keepalive_topic(self) -> str:
+        return WellKnownTopic.build_keepalive_topic(self.identifier)
+
+    @property
+    def general_purpose_hook_topic(self) -> str:
+        return WellKnownTopic.build_keepalive_topic(self.identifier)
 
 
     def _need_for_operation(self, operation_name: str) -> Optional[Need]:
@@ -46,13 +63,13 @@ class Core(Orbiter, StateMachine[CoreState]):
         :return: None is there are no needs
         """
 
-        if operation_name not in self.operation_needs.keys():
+        if operation_name not in self.needed_operations.keys():
             return None
 
-        need = self.operation_needs[operation_name].to_need()
+        need = self.needed_operations[operation_name].to_need()
 
         for plugin_identifier in self.operation_plugin_topic[operation_name].keys():
-            need.mandatory.discard(plugin_identifier)
+            need.mandatory.remove(plugin_identifier)
 
             if need.maximum is not None:
                 need.maximum = max(0, need.maximum - 1)
@@ -77,7 +94,7 @@ class Core(Orbiter, StateMachine[CoreState]):
         Return True if the plugged plugins are enough to perform all services
         """
 
-        for operation_name in self.operation_needs.keys():
+        for operation_name in self.needed_operations.keys():
             if not self.is_compliance_for_operation(operation_name):
                 return False
 
@@ -99,7 +116,7 @@ class Core(Orbiter, StateMachine[CoreState]):
         offer_topic = self.build_offer_topic()
 
         needs = {}
-        for operation_name in self.operation_needs.keys():
+        for operation_name in self.needed_operations.keys():
             needs[operation_name] = self._need_for_operation(operation_name)
 
         if len(needs) == 0:
@@ -123,12 +140,15 @@ class Core(Orbiter, StateMachine[CoreState]):
         return False        # TODO
 
     def build_response_topic(self, plugin_identifier: str) -> str:
-        return WellKnownHandShakeTopic.build_response_topic(
+        return WellKnownTopic.build_response_topic(
                     self.identifier,
                     plugin_identifier
                 )
 
-    @schemafull_event_handler(AvroModel.avro_schema_to_python(OfferMessage))
+    def build_operation_result_topic(self, plugin_identifier: str, operation_name: str) -> str:
+        return f"{operation_name}.{self.identifier}.{plugin_identifier}.result"
+
+    @schemafull_event_handler(OfferMessage.avro_schema_to_python())
     async def offer_event_handler(self, topic: str, event: Event[OfferMessage]):
         logging.debug(f"{self}: new offer: {topic} -> {event}")
 
@@ -151,19 +171,21 @@ class Core(Orbiter, StateMachine[CoreState]):
                 handler=self.response_event_handler
             )
 
+            operations_to_request: Dict[str, str] = dict([(operation_name, self.build_operation_result_topic(event.payload.plugin_identifier, operation_name)) for operation_name in operations_to_request])
+
             await self.eventbus_client.publish(
                 topic=event.payload.reply_topic,
                 event=RequestMessage(
-                    core_descriptor=...,  # TODO
+                    core_identifier=self.identifier,
+                    core_keepalive_topic=self.keepalive_topic,
+                    core_general_purpose_hook=self.general_purpose_hook_topic,
                     response_topic=response_topic,
-                    requested_operations=...  # TODO
+                    requested_operations=operations_to_request
                 ).into_event()
             )
 
-            # TODO: save in pending topics; solve TODO row 28
-
-            for operation_name in operations_to_request:
-                self.pending_plugins[event.payload.plugin_identifier][operation_name] = datetime.now()
+            for operation_name, result_topic in operations_to_request.items():
+                self.pending_plugins[event.payload.plugin_identifier][operation_name] = PendingRequest(operation_name, result_topic)
 
         if len(operations_to_reject) > 0:
             logging.debug(f"{self}: operations to reject: {operations_to_reject}")
@@ -178,7 +200,7 @@ class Core(Orbiter, StateMachine[CoreState]):
             )
 
 
-    @schemafull_event_handler(AvroModel.avro_schema_to_python(ResponseMessage))
+    @schemafull_event_handler(ResponseMessage.avro_schema_to_python())
     async def response_event_handler(self, topic: str, event: Event[ResponseMessage]):
         logging.debug(f"{self}: new response: {topic} -> {event}")
 
@@ -194,6 +216,15 @@ class Core(Orbiter, StateMachine[CoreState]):
         if self.state == CoreState.NOT_COMPLIANT:
             await self.send_discover()
 
+    @override
+    async def _internal_stop(self, *args, **kwargs):
+        await super()._internal_stop(*args, **kwargs)
+
+        topics: List[str] = [
+            self.discover_topic,
+        ]
+
+        await self.eventbus_client.multi_unsubscribe(topics, parallelize=True)
 
 
     async def execute(self, operation_name: str, payload: Optional[AvroEventPayload] = None,
