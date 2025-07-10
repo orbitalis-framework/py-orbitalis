@@ -19,14 +19,13 @@ class OperationResultMessage(AvroEventPayload):
 
     plugin_identifier: str
     operation_name: str
-    avro_data: Optional[bytes] = field(default=None)
-    avro_schema: Optional[str] = field(default=None)
+    data: Optional[bytes] = field(default=None)
     exception: Optional[str] = field(default=None)
     produced_at: datetime = field(default_factory=lambda: datetime.now())
 
     def __post_init__(self):
-        if self.exception is None and self.avro_data is None:
+        if self.exception is None and self.data is None:
             raise ValueError("Result missed")
 
-        if self.avro_data is not None and self.avro_schema is None:
-            raise ValueError("Schema missed")
+        if self.exception is not None and self.data is not None:
+            raise ValueError("You must provide data OR exception")

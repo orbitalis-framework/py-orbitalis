@@ -18,31 +18,39 @@ class Policy(AllowBlockPriorityListMixin):
 @dataclass(frozen=True)
 class Operation:
     handler: SchemafullEventHandler
-    policy: Optional[Policy] = field(default=None)
+    has_output: bool
+    output_schemas: Optional[List[str]] = field(default=None)
+    policy: Policy = field(default=None)
 
 
-def operation(*, name: Optional[str] = None, policy: Optional[Policy] = None, schemas: List[Dict] | Dict):
+class _OperationDescriptor:
+    def __init__(self, func, op_name, has_output: bool, policy, input_schemas, output_schemas):
+        self.func = schemafull_event_handler(input_schemas)(func)
+        self.op_name = op_name
+        self.policy = policy
+        self.has_output = has_output
+        self.output_schemas = output_schemas
 
-    def decorator(method: Callable[[str, Event], Awaitable]):
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
 
-        if not inspect.iscoroutinefunction(method):
-            raise TypeError("Event handler must be an async function or method.")
+        if self.op_name not in instance.operations:
+            instance.operations[self.op_name] = Operation(
+                handler=self.func.__get__(instance, owner),
+                policy=self.policy,
+                output_schemas=self.output_schemas,
+                has_output=self.has_output
+            )
 
-        method_name = method.__name__
-        operation_name = name or method_name
+        return self.func.__get__(instance, owner)
 
-        @schemafull_event_handler(schemas)
-        @functools.wraps(method)
-        async def wrapper(self, *args, **kwargs):
 
-            if not hasattr(self, "operations"):
-                raise AttributeError(f"{self} has no 'operations' attribute")
+def operation(*, policy: Policy, has_output: bool, input_schemas: List[Dict] | Dict, output_schemas: Optional[List[Dict] | Dict] = None, name: Optional[str] = None):
+    def decorator(func):
+        if not inspect.iscoroutinefunction(func):
+            raise TypeError("Event handler must be async")
 
-            if operation_name not in self.operations:
-                self.operations[operation_name] = Operation(getattr(self, method_name), policy)
-
-            return await method(self, *args, **kwargs)
-
-        return wrapper
-
+        op_name = name or func.__name__
+        return _OperationDescriptor(func, op_name, has_output, policy, input_schemas, output_schemas)
     return decorator

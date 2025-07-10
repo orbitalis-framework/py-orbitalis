@@ -17,5 +17,5 @@ class ResponseMessage(AvroEventPayload):
     """
 
     plugin_identifier: str
-    operations: Dict[str, str]     # operation_name => topic
+    operations: Dict[str, str]     # operation_name => input_topic
     denied_operations: List[str]

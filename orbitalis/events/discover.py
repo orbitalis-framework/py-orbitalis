@@ -5,17 +5,14 @@ from dataclasses_avroschema import AvroModel
 
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
-from orbitalis.core.need import ConstrainedNeed
 from orbitalis.utils.allowblocklist import AllowBlockPriorityListMixin
 
 
-@dataclass
-class NeededOperationInformation(AvroModel):
+@dataclass(kw_only=True)
+class NeededOperationInformation(AllowBlockPriorityListMixin, AvroModel):
     operation_name: str
-    mandatory: Optional[List[str]] = field(default=None)
-    schema_fingerprint: Optional[str] = field(default=None)
-    blocklist: Optional[List[str]] = field(default=None)
-    priorities: Dict[str, int] = field(default_factory=dict)
+    mandatory: Optional[List[str]]
+    schema_fingerprints: Optional[List[str]]
 
     def __post_init__(self):
         if self.blocklist is not None and len(set(self.blocklist).intersection(set(self.priorities.keys()))) > 0:

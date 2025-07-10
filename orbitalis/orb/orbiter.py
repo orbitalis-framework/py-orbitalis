@@ -18,7 +18,6 @@ class Orbiter(ABC):
 
     identifier: str = field(default_factory=lambda: str(uuid.uuid4()))
 
-
     def discard_expired_pending_requests(self, /, expiration_date: Optional[datetime] = None, seconds: Optional[float] = None) -> int:
         """
         Remove from pending requests expired requests based on datetime provided or seconds elapsed.

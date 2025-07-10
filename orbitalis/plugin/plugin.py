@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import override, Dict, List, Tuple
+from typing import override, Dict, List, Tuple, Optional
 from abc import ABC
 from dataclasses import dataclass, field
 
@@ -12,6 +12,7 @@ from busline.event.event import Event
 from orbitalis.core.descriptor import CoreDescriptor
 from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
+from orbitalis.events.operation_result import OperationResultMessage
 from orbitalis.events.reply import RequestMessage, RejectMessage
 from orbitalis.events.response import ResponseMessage
 from orbitalis.events.wellknown_topic import WellKnownTopic
@@ -22,11 +23,11 @@ from orbitalis.state_machine.state_machine import StateMachine
 
 
 @dataclass(frozen=True)
-class Connection:
+class _Connection:
     operation_name: str
     core_identifier: str
     input_topic: str
-    result_topic: str
+    output_topic: str
     when: datetime = field(default_factory=lambda: datetime.now())
 
 
@@ -39,14 +40,28 @@ class Plugin(Orbiter, StateMachine, ABC):
 
     operations: Dict[str, Operation] = field(default_factory=dict)     # operation_name => Operation
 
-    pending_cores: Dict[str, Dict[str, datetime]] = field(default_factory=dict, init=False)     # core_identifier => { operation_name => when }
-    lent_operations: Dict[str, Dict[str, Connection]] = field(default_factory=lambda: defaultdict(dict), init=False)     # operation_name => { core_identifier => Connection }
+    pending_cores: Dict[str, Dict[str, datetime]] = field(default_factory=lambda: defaultdict(dict), init=False)     # core_identifier => { operation_name => when }
+    lent_operations: Dict[str, Dict[str, _Connection]] = field(default_factory=lambda: defaultdict(dict), init=False)     # operation_name => { core_identifier => Connection }
 
     # === CONFIGURATION parameters ===
     discover_topic: str = field(default_factory=lambda: WellKnownTopic.discover_topic())
 
     def __post_init__(self):
         self.state = PluginState.CREATED
+
+        for attr_name in dir(self):
+            attr = getattr(self, attr_name)
+
+    def from_input_topic_to_connections(self, input_topic: str, operation_name: Optional[str] = None) -> List[_Connection]:
+        connections: List[_Connection] = []
+
+        for cores in self.lent_operations.values():
+            for core_identifier, connection in cores.items():
+                if connection.input_topic == input_topic:
+                    if operation_name is None or (operation_name is not None and connection.operation_name == operation_name):
+                        connections.append(connection)
+
+        return connections
 
     @override
     async def _internal_start(self, *args, **kwargs):
@@ -66,7 +81,7 @@ class Plugin(Orbiter, StateMachine, ABC):
         if not self.operations[operation_name].policy.is_compliance(core_identifier):
             return False
 
-        if len(self.lent_operations[operation_name].keys()) < self.operations[operation_name].policy.maximum:
+        if self.operations[operation_name].policy.maximum is None or len(self.lent_operations[operation_name].keys()) < self.operations[operation_name].policy.maximum:
             return True
 
         return False
@@ -79,8 +94,23 @@ class Plugin(Orbiter, StateMachine, ABC):
 
         for needed_operation_name, needed_operation_information in event.payload.needed_operations.items():
             if needed_operation_name in self.operations:
-                if needed_operation_information.blocklist is not None and self.identifier in needed_operation_information.blocklist:
+                if (needed_operation_information.blocklist is not None and self.identifier in needed_operation_information.blocklist) \
+                        or (needed_operation_information.allowlist is not None and self.identifier not in needed_operation_information.allowlist):
                     continue
+
+                if event.payload.core_identifier in self.pending_cores.keys() \
+                        or event.payload.core_identifier in self.lent_operations[needed_operation_name]:
+                    continue
+
+                if self.operations[needed_operation_name].policy.maximum is not None:
+                    current_reserved_slot_for_operation: int = len(self.lent_operations[needed_operation_name].keys())
+
+                    for core_identifier, operation in self.pending_cores.items():
+                        if needed_operation_name in operation.keys():
+                            current_reserved_slot_for_operation += 1
+
+                    if current_reserved_slot_for_operation >= self.operations[needed_operation_name].policy.maximum:
+                        continue
 
                 if self.can_lend_to_core(event.payload.core_identifier, needed_operation_name):
                     offerable_operations.append(needed_operation_name)
@@ -102,19 +132,12 @@ class Plugin(Orbiter, StateMachine, ABC):
         return WellKnownTopic.build_reply_topic(core_identifier, self.identifier)
 
     def build_operation_input_topic_for_core(self, core_identifier: str, operation_name: str) -> str:
-        return f"{operation_name}.{core_identifier}.{self.identifier}"
+        return f"{operation_name}.{core_identifier}.{self.identifier}.input"
 
     async def send_offer(self, offer_topic: str, core_identifier: str, offerable_operations: List[str]):
 
         if len(offerable_operations) == 0:
             return
-
-        reply_topic = self.build_reply_topic(core_identifier)
-
-        await self.eventbus_client.subscribe(
-            topic=reply_topic,
-            handler=self.reply_event_handler
-        )
 
         offered_operations: List[OfferedOperation] = []
 
@@ -126,20 +149,30 @@ class Plugin(Orbiter, StateMachine, ABC):
                 )
             )
 
-        await self.eventbus_client.publish(
-            topic=offer_topic,
-            event=OfferMessage(
-                plugin_identifier=self.identifier,
-                offered_operations=offered_operations,
-                reply_topic=reply_topic
-            ).into_event()
-        )
-
         for operation_name in offerable_operations:
             self.pending_cores[core_identifier][operation_name] = datetime.now()
 
-    def build_response_topic(self, core_identifier: str) -> str:
-        return WellKnownTopic.build_response_topic(core_identifier, self.identifier)
+        try:
+            reply_topic = self.build_reply_topic(core_identifier)
+
+            await self.eventbus_client.subscribe(
+                topic=reply_topic,
+                handler=self.reply_event_handler
+            )
+
+            await self.eventbus_client.publish(
+                topic=offer_topic,
+                event=OfferMessage(
+                    plugin_identifier=self.identifier,
+                    offered_operations=offered_operations,
+                    reply_topic=reply_topic
+                ).into_event()
+            )
+        except Exception as e:
+            logging.error(f"{self}: {e}")
+
+            for operation_name in offerable_operations:
+                del self.pending_cores[core_identifier][operation_name]
 
     async def reject_event_handler(self, topic: str, event: Event[RejectMessage]):
         logging.debug(f"{self}: core {event.payload.core_identifier} rejects plug request for these operations: {event.payload.rejected_operations}")
@@ -147,7 +180,7 @@ class Plugin(Orbiter, StateMachine, ABC):
         for operation_name in event.payload.rejected_operations:
             self.pending_cores[event.payload.core_identifier].pop(operation_name, None)
 
-    async def setup_and_register_to_core(self, core_identifier: str, lent_operations: Dict[str, Tuple[str, str]], lent_denied_operations: List[str]):
+    async def setup_and_register_to_core(self, response_topic: str, core_identifier: str, lent_operations: Dict[str, Tuple[str, str]], lent_denied_operations: List[str]):
         """
         lent_operations: operation_name => (input_topic, result_topic)
 
@@ -157,14 +190,18 @@ class Plugin(Orbiter, StateMachine, ABC):
         """
 
         try:
-            for lent_operation_name, input_topic, result_topic in lent_operations.items():
+            for lent_operation_name, (input_topic, result_topic) in lent_operations.items():
                 await self.eventbus_client.subscribe(input_topic, self.operations[lent_operation_name].handler)
+        except Exception as e:
+            logging.error(f"{self}: {e}")
+            return
 
+        try:
             await self.eventbus_client.publish(
-                self.build_response_topic(core_identifier),
+                response_topic,
                 ResponseMessage(
                     plugin_identifier=self.identifier,
-                    operations=dict([(lent_operation_name, input_topic) for lent_operation_name, input_topic, result_topic in lent_operations.items()]),
+                    operations=dict([(lent_operation_name, input_topic) for lent_operation_name, (input_topic, result_topic) in lent_operations.items()]),
                     denied_operations=lent_denied_operations
                 ).into_event()
             )
@@ -181,11 +218,11 @@ class Plugin(Orbiter, StateMachine, ABC):
                     logging.warning(f"{self}: operation without no pending request")
                     continue
 
-                self.lent_operations[operation_name][core_identifier] = Connection(
+                self.lent_operations[operation_name][core_identifier] = _Connection(
                     core_identifier=core_identifier,
                     operation_name=operation_name,
                     input_topic=input_topic,
-                    result_topic=result_topic
+                    output_topic=result_topic
                 )
 
                 del self.pending_cores[core_identifier][operation_name]
@@ -216,10 +253,11 @@ class Plugin(Orbiter, StateMachine, ABC):
         for operation_name in operations_to_lend:
             lent_operations[operation_name] = (
                 self.build_operation_input_topic_for_core(event.payload.core_identifier, operation_name),  # input_topic
-                event.payload.requested_operations[operation_name]  # result_topic
+                event.payload.requested_operations[operation_name]  # output_topic
             )
 
         await self.setup_and_register_to_core(
+            event.payload.response_topic,
             event.payload.core_identifier,
             lent_operations,
             lend_denied_operations
@@ -245,7 +283,16 @@ class Plugin(Orbiter, StateMachine, ABC):
         else:
             raise ValueError("Unexpected reply payload")
 
-
+    async def send_result(self, output_topic: str, operation_name: str, /, data: Optional[bytes] = None, exception: Optional[str] = None):
+        await self.eventbus_client.publish(
+            output_topic,
+            OperationResultMessage(
+                plugin_identifier=self.identifier,
+                operation_name=operation_name,
+                data=data,
+                exception=exception
+            ).into_event()
+        )
 
 
 

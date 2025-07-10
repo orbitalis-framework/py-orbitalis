@@ -10,7 +10,8 @@ from busline.event.avro_payload import AvroEventPayload
 @dataclass(frozen=True)
 class OfferedOperation(AvroModel):
     operation_name: str
-    operation_input_schema_fingerprints: List[str]
+    operation_input_schema: List[str]
+    operation_output_schemas: List[str]
 
 
 @dataclass(frozen=True)

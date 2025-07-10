@@ -29,21 +29,53 @@ class MockCore(Core):
 
 
 @dataclass
-class MockPlugin(Plugin):
+class AuthPlugin(Plugin):
 
     operation_call: int = 0
     unlocked: bool = False
+    last_value: str = ""
 
     def reset(self):
         self.operation_call = 0
         self.unlocked = False
 
-    @operation(name="operation", schemas=MockOperationMessage.avro_schema_to_python())
-    async def mock_operation_event_handler(self, topic: str, event: Event[MockOperationMessage]):
+    @operation(
+        name="auth",
+        input_schemas=MockOperationMessage.avro_schema_to_python(),
+        has_output=True,
+        policy=Policy(allowlist=["core1"])
+    )
+    async def auth_event_handler(self, topic: str, event: Event[MockOperationMessage]):
         self.operation_call += 1
+        self.last_value = event.payload.value
 
         if event.payload.value == "secret":
+            outcome = (1).to_bytes(1)
             self.unlocked = True
+        else:
+            outcome = (0).to_bytes(1)
+            self.unlocked = False
+
+        connections = self.from_input_topic_to_connections(topic, "auth")
+
+        assert len(connections) == 1
+        connection = connections[0]
+
+        await self.send_result(
+            connection.output_topic,
+            "auth",
+            data=outcome
+        )
+
+    @operation(
+        name="dummy",
+        input_schemas=MockOperationMessage.avro_schema_to_python(),
+        has_output=True,
+        policy=Policy(maximum=1)
+    )
+    async def dummy_event_handler(self, topic: str, event: Event[MockOperationMessage]):
+        self.operation_call += 1
+        self.last_value = event.payload.value
 
 
 
@@ -51,31 +83,40 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
 
     def setUp(self):
-        self.plugin = MockPlugin(
+        self.plugin = AuthPlugin(
+            identifier="plugin",
             eventbus_client=LocalPubTopicSubClientBuilder()\
                     .with_default_publisher()\
                     .with_closure_subscriber(lambda t, e: ...)\
                     .build(),
         )
 
+        self.assertTrue("auth" in self.plugin.operations.keys())
+        self.assertTrue("dummy" in self.plugin.operations)
+
         self.core = MockCore(
-            discovering_interval=0.5,
+            identifier="core",
             eventbus_client=LocalPubTopicSubClientBuilder() \
                 .with_default_publisher() \
                 .with_closure_subscriber(lambda t, e: ...) \
                 .build(),
             needed_operations={
-                "operation": ConstrainedNeed()
+                "operation": ConstrainedNeed(
+                    minimum=1
+                )
             }
         )
 
         self.core2 = MockCore(
+            identifier="core2",
             eventbus_client=LocalPubTopicSubClientBuilder() \
                 .with_default_publisher() \
                 .with_closure_subscriber(lambda t, e: ...) \
                 .build(),
             needed_operations={
-                "operation": ConstrainedNeed()
+                "operation": ConstrainedNeed(
+                    minimum=1
+                )
             }
         )
 
@@ -93,37 +134,38 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await self.core2.start()
 
+        await asyncio.sleep(1)
+
         self.assertFalse(self.core2.is_compliance())
+
 
     async def test_operation(self):
         await self.plugin.start()
 
-        # await self.plugin.eventbus_client.subscribe("operation-topic", self.plugin.mock_operation_event_handler)
+        await self.plugin.eventbus_client.subscribe("dummy-topic", self.plugin.dummy_event_handler)
 
         self.plugin.operation_call = 0
 
         await self.core.eventbus_client.connect()   # without .start() it is needed
         await self.core.sudo_execute(
-            "operation-topic",
+            "dummy-topic",
             MockOperationMessage("abc")     # .into_event() is called within method
         )
 
         await asyncio.sleep(1)
 
-        self.assertTrue("operation" in self.plugin.operations)
         self.assertEqual(self.plugin.operation_call, 1)
-        self.assertFalse(self.plugin.unlocked)
+        self.assertEqual(self.plugin.last_value, "abc")
 
         await self.core.eventbus_client.publish(     # equal to sudo_execute
-            "operation-topic",
+            "dummy-topic",
             MockOperationMessage("secret").into_event()     # need to be an event
         )
 
         await asyncio.sleep(1)
 
-        self.assertTrue("operation" in self.plugin.operations)
         self.assertEqual(self.plugin.operation_call, 2)
-        self.assertTrue(self.plugin.unlocked)
+        self.assertEqual(self.plugin.last_value, "secret")
 
 
 
