@@ -1,6 +1,6 @@
 
 from dataclasses import dataclass, field
-from typing import Set, Optional
+from typing import Set, Optional, List, Dict
 
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
@@ -17,4 +17,5 @@ class ResponseMessage(AvroEventPayload):
     """
 
     plugin_identifier: str
-    plug_confirmed: bool
+    operations: Dict[str, str]     # operation_name => topic
+    denied_operations: List[str]

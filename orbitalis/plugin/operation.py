@@ -15,11 +15,10 @@ class Policy(AllowBlockPriorityListMixin):
     maximum: Optional[int] = field(default=None)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Operation:
     handler: SchemafullEventHandler
     policy: Optional[Policy] = field(default=None)
-    associated_cores: Dict[str, Optional[str]] = field(default_factory=dict, init=False)  # core_identifier => result_topic
 
 
 def operation(*, name: Optional[str] = None, policy: Optional[Policy] = None, schemas: List[Dict] | Dict):

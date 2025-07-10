@@ -7,6 +7,7 @@ from dataclasses_avroschema import AvroModel
 from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler
 from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
 from orbitalis.core.need import ConstrainedNeed
+from orbitalis.events.operation_result import OperationResultMessage
 from orbitalis.plugin.operation import operation, Policy
 from orbitalis.plugin.plugin import Plugin
 from busline.event.avro_payload import AvroEventPayload
@@ -23,7 +24,8 @@ class MockOperationMessage(AvroEventPayload):
 
 @dataclass
 class MockCore(Core):
-    pass
+    async def result_event_handler(self, topic: str, event: Event[OperationResultMessage]):
+        pass
 
 
 @dataclass
@@ -57,12 +59,13 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         )
 
         self.core = MockCore(
+            discovering_interval=0.5,
             eventbus_client=LocalPubTopicSubClientBuilder() \
                 .with_default_publisher() \
                 .with_closure_subscriber(lambda t, e: ...) \
                 .build(),
             needed_operations={
-                "operation2": ConstrainedNeed()
+                "operation": ConstrainedNeed()
             }
         )
 
@@ -72,7 +75,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 .with_closure_subscriber(lambda t, e: ...) \
                 .build(),
             needed_operations={
-                "operation2": ConstrainedNeed()
+                "operation": ConstrainedNeed()
             }
         )
 
@@ -82,7 +85,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         await self.plugin.start()
         await self.core.start()
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         self.assertTrue(self.core.is_compliance())
 
@@ -92,10 +95,10 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(self.core2.is_compliance())
 
-    async def test_operation1(self):
+    async def test_operation(self):
         await self.plugin.start()
 
-        await self.plugin.eventbus_client.subscribe("operation-topic", self.plugin.mock_operation_event_handler)
+        # await self.plugin.eventbus_client.subscribe("operation-topic", self.plugin.mock_operation_event_handler)
 
         self.plugin.operation_call = 0
 

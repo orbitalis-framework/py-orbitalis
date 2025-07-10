@@ -11,6 +11,7 @@ from orbitalis.core.descriptor import CoreDescriptor
 @registry
 class RequestMessage(AvroEventPayload):
     """
+    Core --- request ---> Plugin
 
     TODO
 
@@ -32,6 +33,7 @@ class RequestMessage(AvroEventPayload):
 @registry
 class RejectMessage(AvroEventPayload):
     """
+    Core --- reject ---> Plugin
 
     TODO
 

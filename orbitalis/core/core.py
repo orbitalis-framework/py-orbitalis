@@ -1,20 +1,21 @@
 import random
+from abc import abstractmethod, ABC
 from collections import defaultdict
 from datetime import datetime
 import logging
 from dataclasses import dataclass, field
 from typing import override, Dict, Set, Optional, List
 
-from dataclasses_avroschema import AvroModel
-
 from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler
+from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
 from orbitalis.core.state import CoreState
-from orbitalis.events.handshake.discover import DiscoverMessage
-from orbitalis.events.handshake.offer import OfferMessage, OfferedOperation
-from orbitalis.events.handshake.reply import RequestMessage, RejectMessage
-from orbitalis.events.handshake.response import ResponseMessage
+from orbitalis.events.discover import DiscoverMessage
+from orbitalis.events.offer import OfferMessage, OfferedOperation
+from orbitalis.events.operation_result import OperationResultMessage
+from orbitalis.events.reply import RequestMessage, RejectMessage
+from orbitalis.events.response import ResponseMessage
 from orbitalis.events.wellknown_topic import WellKnownTopic
 from orbitalis.core.need import Need, ConstrainedNeed
 from orbitalis.orb.orbiter import Orbiter
@@ -30,15 +31,22 @@ class PendingRequest:
     when: datetime = field(default_factory=lambda: datetime.now())
 
 
+@dataclass(frozen=True)
+class Connection:
+    operation_name: str
+    plugin_identifier: str
+    input_topic: str
+    result_topic: str
+    when: datetime = field(default_factory=lambda: datetime.now())
+
 
 @dataclass(kw_only=True)
-class Core(Orbiter, StateMachine[CoreState]):
+class Core(Orbiter, StateMachine[CoreState], ABC):
 
     # TODO: unify operation_plugin_topic and operation_needs
 
-    operation_plugin_topic: Dict[str, Dict[str, str]] = field(default_factory=lambda: defaultdict(dict), init=False)     # operation_name => { plugin_identifier => topic }
+    borrowed_operations: Dict[str, Dict[str, Connection]] = field(default_factory=lambda: defaultdict(dict), init=False)     # operation_name => { plugin_identifier => Connection }
     pending_plugins: Dict[str, Dict[str, PendingRequest]] = field(default_factory=dict, init=False)       # plugin_identifier => { operation_name => when }
-    plugin_descriptors: Dict[str, PluginDescriptor] = field(default_factory=dict, init=False)       # plugin_identifier => PluginDescriptor
 
     # === CONFIGURATION parameters ===
     discover_topic: str = field(default_factory=lambda: WellKnownTopic.discover_topic())
@@ -68,7 +76,7 @@ class Core(Orbiter, StateMachine[CoreState]):
 
         need = self.needed_operations[operation_name].to_need()
 
-        for plugin_identifier in self.operation_plugin_topic[operation_name].keys():
+        for plugin_identifier in self.borrowed_operations[operation_name].keys():
             need.mandatory.remove(plugin_identifier)
 
             if need.maximum is not None:
@@ -115,11 +123,11 @@ class Core(Orbiter, StateMachine[CoreState]):
 
         offer_topic = self.build_offer_topic()
 
-        needs = {}
+        needed_operations = {}
         for operation_name in self.needed_operations.keys():
-            needs[operation_name] = self._need_for_operation(operation_name)
+            needed_operations[operation_name] = self._need_for_operation(operation_name)
 
-        if len(needs) == 0:
+        if len(needed_operations) == 0:
             return
 
         await self.eventbus_client.subscribe(
@@ -131,7 +139,7 @@ class Core(Orbiter, StateMachine[CoreState]):
             self.discover_topic,
             DiscoverMessage(
                 core_identifier=self.identifier,
-                needs=needs,
+                needed_operations=needed_operations,
                 offer_topic=offer_topic
             ).into_event()
         )
@@ -204,8 +212,37 @@ class Core(Orbiter, StateMachine[CoreState]):
     async def response_event_handler(self, topic: str, event: Event[ResponseMessage]):
         logging.debug(f"{self}: new response: {topic} -> {event}")
 
-        # TODO
+        for borrowed_operation_name, input_topic in event.payload.operations.items():
 
+            if event.payload.plugin_identifier not in self.pending_plugins \
+                or borrowed_operation_name not in self.pending_plugins[event.payload.plugin_identifier]:
+                logging.warning(f"{self}: operation {borrowed_operation_name} from plugin {event.payload.plugin_identifier} was not requested")
+                continue
+
+            await self.eventbus_client.subscribe(
+                self.pending_plugins[event.payload.plugin_identifier][borrowed_operation_name].result_topic,
+                self.result_event_handler
+            )
+
+            try:
+                self.borrowed_operations[borrowed_operation_name][event.payload.plugin_identifier] = Connection(
+                    operation_name=borrowed_operation_name,
+                    plugin_identifier=event.payload.plugin_identifier,
+                    input_topic=input_topic,
+                    result_topic=self.pending_plugins[event.payload.plugin_identifier][borrowed_operation_name].result_topic
+                )
+
+                del self.pending_plugins[event.payload.plugin_identifier][borrowed_operation_name]
+
+
+            except Exception as e:
+                logging.error(f"{self}: {e}")
+                await self.eventbus_client.unsubscribe(self.pending_plugins[event.payload.plugin_identifier][borrowed_operation_name].result_topic)
+
+    @schemafull_event_handler(OperationResultMessage.avro_schema_to_python())
+    @abstractmethod
+    async def result_event_handler(self, topic: str, event: Event[OperationResultMessage]):
+        raise NotImplemented()
 
     @override
     async def _internal_start(self, *args, **kwargs):
@@ -248,10 +285,10 @@ class Core(Orbiter, StateMachine[CoreState]):
             if payload is not None and self.plugin_descriptors[plugin_identifier].operations[operation_name] != payload:
                 raise ValueError("incompatible input payload schema and plugin operation")
 
-            topics.add(self.operation_plugin_topic[operation_name][plugin_identifier])
+            topics.add(self.operation_plugin_result_topic[operation_name][plugin_identifier])
 
         elif all or any:
-            for plugin_identifier, topic in self.operation_plugin_topic[operation_name].items():
+            for plugin_identifier, topic in self.operation_plugin_result_topic[operation_name].items():
                 if payload is not None and self.plugin_descriptors[plugin_identifier].operations[operation_name] != payload:
                     continue
 

@@ -6,14 +6,10 @@ from dataclasses_avroschema import AvroModel
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
 
-from orbitalis.core.descriptor import CoreDescriptor
-from orbitalis.events.wellknown_event import WellKnownEventType
-from orbitalis.plugin.descriptor import PluginDescriptor
 
 @dataclass(frozen=True)
 class OfferedOperation(AvroModel):
     operation_name: str
-    topic: str
     operation_input_schema_fingerprints: List[str]
 
 
@@ -22,7 +18,7 @@ class OfferedOperation(AvroModel):
 class OfferMessage(AvroEventPayload):
     """
 
-    TODO
+    Plugin --- offer ---> Core
 
     Author: Nicola Ricciardi
     """

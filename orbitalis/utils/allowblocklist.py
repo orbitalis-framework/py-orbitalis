@@ -15,9 +15,11 @@ class AllowBlockPriorityListMixin(ABC):
 
     allowlist: Optional[List[str]] = field(default=None)
     blocklist: Optional[List[str]] = field(default=None)
-    priority: Dict[str, int] = field(default_factory=dict)
+    priorities: Dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self):
+        if self.blocklist is not None and len(set(self.blocklist).intersection(set(self.priorities.keys()))) > 0:
+            raise ValueError("Some blocked identifiers have a priority")
 
         if self.allowlist is not None and self.blocklist is not None:
             raise ValueError("allowlist and blocklist can not be used together")

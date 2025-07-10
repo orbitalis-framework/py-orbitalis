@@ -17,7 +17,7 @@ class Need:
     minimum: int = field(default=0)
     maximum: Optional[int] = field(default=None)
     mandatory: Optional[List[str]] = field(default=None)
-    schema_fingerprint: Optional[str] = field(default=None)
+    schema_fingerprints: Optional[List[str]] = field(default=None)
 
     def __post_init__(self):
         if self.minimum < 0 or (self.maximum is not None and self.maximum < 0) \
@@ -27,7 +27,7 @@ class Need:
 
 
 @dataclass
-class ConstrainedNeed(Need, AllowBlockPriorityListMixin, AvroModel):
+class ConstrainedNeed(Need, AllowBlockPriorityListMixin):
 
     def to_need(self) -> Need:
         return Need(
