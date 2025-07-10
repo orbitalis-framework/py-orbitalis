@@ -264,10 +264,11 @@ class Core(Orbiter, StateMachine[CoreState]):
             raise ValueError("modality (any/all/identifier) must be specified")
 
 
-        await self.eventbus_client.multi_publish(list(topics), payload.into_event())
+        await self.eventbus_client.multi_publish(list(topics), payload.into_event() if payload is not None else None)
 
 
-
+    async def sudo_execute(self, topic: str, payload: Optional[AvroEventPayload] = None):
+        await self.eventbus_client.publish(topic, payload.into_event() if payload is not None else None)
 
 
 

@@ -22,7 +22,7 @@ class Need:
     def __post_init__(self):
         if self.minimum < 0 or (self.maximum is not None and self.maximum < 0) \
                 or (self.maximum is not None and self.minimum > self.maximum) \
-                or (len(self.mandatory) > self.maximum):
+                or (self.mandatory is not None and len(self.mandatory) > self.maximum):
             raise ValueError("minimum and/or maximum value are invalid")
 
 
