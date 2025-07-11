@@ -1,14 +1,12 @@
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from busline.client.pubsub_client import PubTopicSubClient
 import uuid
 
 from orbitalis.events.wellknown_topic import WellKnownTopic
 from orbitalis.orbiter.connection import Connection
-from orbitalis.orbiter.operation import Operation
 from orbitalis.orbiter.pending_request import PendingRequest
 
 
@@ -25,16 +23,21 @@ class Orbiter(ABC):
 
     discover_topic: str = field(default_factory=lambda: WellKnownTopic.discover_topic())
 
-    operations: Dict[str, Operation] = field(default_factory=dict, init=False)     # operation_name => Operation
     connections: Dict[str, Dict[str, Connection]] = field(default_factory=dict, init=False)    # remote_identifier => { operation_name => Connection }
     pending_requests: Dict[str, Dict[str, PendingRequest]] = field(default_factory=dict, init=False)    # remote_identifier => { operation_name => PendingRequest }
 
-    def __post_init__(self):
 
-        # used to refresh operations
-        for attr_name in dir(self):
-            _ = getattr(self, attr_name)
+    def connections_by_remote_identifier(self, remote_identifier: str) -> Dict[str, Connection]:
+        return self.connections[remote_identifier]
 
+    def add_connection(self, remote_identifier: str, operation_name: str, connection: Connection):
+        self.connections[remote_identifier][operation_name] = connection
+
+    def pending_requests_by_remote_identifier(self, remote_identifier: str) -> Dict[str, PendingRequest]:
+        return self.pending_requests[remote_identifier]
+
+    def add_pending_request(self, remote_identifier: str, operation_name: str, pending_request: PendingRequest):
+        self.pending_requests[remote_identifier][operation_name] = pending_request
 
     def retrieve_connections(self, *, remote_identifier: Optional[str] = None, input_topic: Optional[str] = None, output_topic: Optional[str] = None, operation_name: Optional[str] = None) -> List[Connection]:
         connections: List[Connection] = []
@@ -58,6 +61,9 @@ class Orbiter(ABC):
                 connections.append(connection)
 
         return connections
+
+    def promote_pending_request_to_connection(self, remote_identifier: str, operation_name: str):
+        raise NotImplemented()      # TODO
 
     def discard_expired_pending_requests(self):
         """

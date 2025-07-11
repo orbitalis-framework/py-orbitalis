@@ -10,14 +10,15 @@ from busline.client.subscriber.topic_subscriber.event_handler import schemafull_
 from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
+from orbitalis.core.hook import Hook
 from orbitalis.core.state import CoreState
 from orbitalis.events.discover import DiscoverMessage, NeededOperationInformation
 from orbitalis.events.offer import OfferMessage, OfferedOperation
-from orbitalis.events.operation_result import OperationResultMessage
 from orbitalis.events.reply import RequestMessage, RejectMessage
 from orbitalis.events.response import ResponseMessage
 from orbitalis.events.wellknown_topic import WellKnownTopic
 from orbitalis.core.need import Need, ConstrainedNeed
+from orbitalis.orbiter.connection import Connection
 from orbitalis.orbiter.orbiter import Orbiter
 from orbitalis.orbiter.pending_request import PendingRequest
 from orbitalis.state_machine.state_machine import StateMachine
@@ -28,6 +29,7 @@ class Core(Orbiter, StateMachine[CoreState], ABC):
 
     discovering_interval: float = field(default=2)
     needed_operations: Dict[str, ConstrainedNeed] = field(default_factory=dict)  # operation_name => Need
+    hooks: Dict[str, Hook] = field(default_factory=dict, init=False)    # hook_name => Hook
 
     def __post_init__(self):
         self.state = CoreState.CREATED
@@ -57,9 +59,10 @@ class Core(Orbiter, StateMachine[CoreState], ABC):
             mandatory=self.needed_operations[operation_name].mandatory.copy() if self.needed_operations[operation_name].mandatory is not None else None,
         )
 
-        for plugin_identifier in self.borrowed_operations[operation_name].keys():
-            if need.mandatory is not None and plugin_identifier in need.mandatory:
-                need.mandatory.remove(plugin_identifier)
+        for connection in self.retrieve_connections(operation_name=operation_name):
+
+            if need.mandatory is not None and connection.remote_identifier in need.mandatory:
+                need.mandatory.remove(connection.remote_identifier)
 
             if need.maximum is not None:
                 need.maximum = max(0, need.maximum - 1)
@@ -124,10 +127,10 @@ class Core(Orbiter, StateMachine[CoreState], ABC):
             needed_operations[operation_name] = NeededOperationInformation(
                 operation_name=operation_name,
                 mandatory=not_satisfied_need.mandatory,
-                priorities=self.needed_operations[operation_name].priorities,
                 allowlist=self.needed_operations[operation_name].allowlist,
                 blocklist=self.needed_operations[operation_name].blocklist,
-                schema_fingerprints=self.needed_operations[operation_name].input_schema_fingerprints
+                input_schemas=self.needed_operations[operation_name].input_schemas,
+                output_schemas=self.needed_operations[operation_name].output_schemas
             )
 
         if len(needed_operations) == 0:
@@ -193,18 +196,26 @@ class Core(Orbiter, StateMachine[CoreState], ABC):
 
             operations_to_request: Dict[str, str] = dict([(operation_name, self.build_operation_output_topic(event.payload.plugin_identifier, operation_name)) for operation_name in operations_to_request])
 
-            for operation_name, result_topic in operations_to_request.items():
-                self.pending_requests[event.payload.plugin_identifier][operation_name] = PendingRequest(
+            keepalive_topic = self.keepalive_topic      # change if keepalive topic depends on plugin
+
+            for operation_name, output_topic in operations_to_request.items():
+
+                self.add_pending_request(event.payload.plugin_identifier, operation_name, PendingRequest(
                     operation_name=operation_name,
-                    output_topic=...
-                )
+                    remote_identifier=event.payload.plugin_identifier,
+                    keepalive_to_local_topic=keepalive_topic,
+                    output_topic=output_topic,
+                    offer_topic=topic,
+                    response_topic=response_topic,
+                    reply_topic=event.payload.reply_topic
+                ))
 
             try:
                 await self.eventbus_client.publish(
                     topic=event.payload.reply_topic,
                     event=RequestMessage(
                         core_identifier=self.identifier,
-                        core_keepalive_topic=self.keepalive_topic,
+                        core_keepalive_topic=keepalive_topic,
                         core_general_purpose_hook=self.general_purpose_hook_topic,
                         response_topic=response_topic,
                         requested_operations=operations_to_request
@@ -213,7 +224,7 @@ class Core(Orbiter, StateMachine[CoreState], ABC):
             except Exception as e:
                 logging.error(f"{self}: {e}")
                 for operation_name, result_topic in operations_to_request.items():
-                    del self.pending_plugins[event.payload.plugin_identifier][operation_name]
+                    del self.pending_requests[event.payload.plugin_identifier][operation_name]
 
 
         if len(operations_to_reject) > 0:
@@ -231,34 +242,29 @@ class Core(Orbiter, StateMachine[CoreState], ABC):
 
     @event_handler
     async def response_event_handler(self, topic: str, event: Event[ResponseMessage]):
+        # TODO: subscribe to keepalive topic and close topics
+
         logging.debug(f"{self}: new response: {topic} -> {event}")
 
         for borrowed_operation_name, input_topic in event.payload.operations.items():
 
-            if event.payload.plugin_identifier not in self.pending_plugins \
-                or borrowed_operation_name not in self.pending_plugins[event.payload.plugin_identifier]:
+            if event.payload.plugin_identifier not in self.pending_requests \
+                or borrowed_operation_name not in self.pending_requests_by_remote_identifier(event.payload.plugin_identifier):
                 logging.warning(f"{self}: operation {borrowed_operation_name} from plugin {event.payload.plugin_identifier} was not requested")
                 continue
 
-            await self.eventbus_client.subscribe(
-                self.pending_plugins[event.payload.plugin_identifier][borrowed_operation_name].output_topic,
-                self.result_event_handler
-            )
-
             try:
-                self.borrowed_operations[borrowed_operation_name][event.payload.plugin_identifier] = _Connection(
-                    operation_name=borrowed_operation_name,
-                    plugin_identifier=event.payload.plugin_identifier,
-                    input_topic=input_topic,
-                    output_topic=self.pending_plugins[event.payload.plugin_identifier][borrowed_operation_name].output_topic
+                await self.eventbus_client.subscribe(
+                    self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic,
+                    self.result_event_handler
                 )
 
-                del self.pending_plugins[event.payload.plugin_identifier][borrowed_operation_name]
+                self.promote_pending_request_to_connection(event.payload.plugin_identifier, borrowed_operation_name)
 
 
             except Exception as e:
                 logging.error(f"{self}: {e}")
-                await self.eventbus_client.unsubscribe(self.pending_plugins[event.payload.plugin_identifier][borrowed_operation_name].output_topic)
+                await self.eventbus_client.unsubscribe(self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic)
 
     @override
     async def _internal_start(self, *args, **kwargs):

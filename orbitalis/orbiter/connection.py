@@ -11,10 +11,11 @@ class Connection:
     Orbiter1 <--- input_topic --- Orbiter2
     Orbiter1 --- output_topic ---> Orbiter2     (optional, only if there is an output)
 
-    Orbiter (you) --- close_connection_remote_topic ---> Orbiter (remote)
-    Orbiter (you) <--- close_connection_local_topic --- Orbiter (remote)
+    Orbiter (you) --- close_connection_to_remote_topic ---> Orbiter (remote)
+    Orbiter (you) <--- close_connection_to_local_topic --- Orbiter (remote)
 
-    Orbiter (you) <--- keepalive_topic --- Orbiter (remote)
+    Orbiter (you) <--- keepalive_to_local_topic --- Orbiter (remote)
+    Orbiter (you) --- keepalive_to_remote_topic ---> Orbiter (remote)
 
     Author: Nicola Ricciardi
     """
@@ -25,9 +26,10 @@ class Connection:
     input_topic: str
     input_schemas: List[str]
 
-    close_connection_local_topic: str
-    close_connection_remote_topic: str
-    keepalive_topic: str
+    close_connection_to_local_topic: str
+    close_connection_to_remote_topic: str
+    keepalive_to_local_topic: str
+    keepalive_to_remote_topic: str
 
     output_topic: Optional[str] = field(default=None)
     output_schemas: Optional[List[str]] = field(default=None)

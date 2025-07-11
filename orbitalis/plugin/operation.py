@@ -8,11 +8,11 @@ from busline.client.subscriber.topic_subscriber.event_handler.event_handler impo
 from busline.client.subscriber.topic_subscriber.event_handler.schemafull_handler import SchemafullEventHandler
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
-from orbitalis.utils.allowblocklist import AllowBlockPriorityListMixin
+from orbitalis.utils.allowblocklist import AllowBlockListMixin
 
 
 @dataclass
-class Policy(AllowBlockPriorityListMixin):
+class Policy(AllowBlockListMixin):
     maximum: Optional[int] = field(default=None)
 
 
@@ -20,10 +20,16 @@ class Policy(AllowBlockPriorityListMixin):
 class Operation:
     name: str
     handler: EventHandler
-    input_schemas: Optional[List[str]] = field(default=None)
+    input_schemas: List[str]
     output_schemas: Optional[List[str]] = field(default=None)
     policy: Policy = field(default=None)
 
+    def __post_init__(self):
+        if self.output_schemas is not None and len(self.output_schemas) == 0:
+            raise ValueError("missed output schemas")
+
+        if len(self.input_schemas) == 0:
+            raise ValueError("missed input schemas")
 
 class _OperationDescriptor:
     def __init__(self, func, operation_name, policy, input_schemas, output_schemas):
@@ -39,6 +45,7 @@ class _OperationDescriptor:
 
         if self.operation_name not in instance.operations:
             instance.operations[self.operation_name] = Operation(
+                name=self.operation_name,
                 handler=self.func.__get__(instance, owner),
                 policy=self.policy,
                 output_schemas=self.output_schemas,
@@ -48,7 +55,10 @@ class _OperationDescriptor:
         return self.func.__get__(instance, owner)
 
 
-def operation(*, policy: Policy, input_schemas: List[Dict] | Dict, output_schemas: Optional[List[Dict] | Dict] = None, name: Optional[str] = None):
+def operation(*, policy: Policy, input_schemas: List[str] | str, output_schemas: Optional[List[Dict] | Dict] = None, name: Optional[str] = None):
+    if isinstance(input_schemas, str):
+        input_schemas = [input_schemas]
+
     def decorator(func):
         if not inspect.iscoroutinefunction(func):
             raise TypeError("Event handler must be async")

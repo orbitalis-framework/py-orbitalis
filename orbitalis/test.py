@@ -1,15 +1,17 @@
 import asyncio
 import unittest
+from typing import Any
+
+from dataclasses_avroschema.pydantic.v1 import AvroBaseModel
 
 from orbitalis.core.need import ConstrainedNeed
-from orbitalis.events.operation_result import OperationResultMessage
-from orbitalis.orbiter.operation import operation, Policy
+from orbitalis.plugin.operation import operation, Policy
 from orbitalis.plugin.plugin import Plugin
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
 from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
 from orbitalis.core.core import Core
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -19,9 +21,7 @@ class MockOperationMessage(AvroEventPayload):
 
 @dataclass
 class MockCore(Core):
-
-    async def auth_event_handler(self, topic: str, event: Event[OperationResultMessage]):
-        pass
+    pass
 
 
 @dataclass
@@ -37,36 +37,34 @@ class AuthPlugin(Plugin):
 
     @operation(
         name="auth",
-        input_schemas=MockOperationMessage.avro_schema_to_python(),
-        has_output=True,
+        input_schemas=MockOperationMessage.avro_schema(),
         policy=Policy(allowlist=["core1"])
     )
     async def auth_event_handler(self, topic: str, event: Event[MockOperationMessage]):
         self.operation_call += 1
         self.last_value = event.payload.value
-
-        if event.payload.value == "secret":
-            outcome = (1).to_bytes(1)
-            self.unlocked = True
-        else:
-            outcome = (0).to_bytes(1)
-            self.unlocked = False
-
-        connections = self.from_input_topic_to_connections(topic, "auth")
-
-        assert len(connections) == 1
-        connection = connections[0]
-
-        await self.send_result(
-            connection.output_topic,
-            "auth",
-            data=outcome
-        )
+    #
+    #     if event.payload.value == "secret":
+    #         outcome = (1).to_bytes(1)
+    #         self.unlocked = True
+    #     else:
+    #         outcome = (0).to_bytes(1)
+    #         self.unlocked = False
+    #
+    #     connections = self.from_input_topic_to_connections(topic, "auth")
+    #
+    #     assert len(connections) == 1
+    #     connection = connections[0]
+    #
+    #     await self.send_result(
+    #         connection.output_topic,
+    #         "auth",
+    #         data=outcome
+    #     )
 
     @operation(
         name="dummy",
-        input_schemas=MockOperationMessage.avro_schema_to_python(),
-        has_output=True,
+        input_schemas=MockOperationMessage.avro_schema(),
         policy=Policy(maximum=1)
     )
     async def dummy_event_handler(self, topic: str, event: Event[MockOperationMessage]):

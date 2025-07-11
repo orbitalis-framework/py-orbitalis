@@ -10,9 +10,15 @@ from busline.event.avro_payload import AvroEventPayload
 @dataclass(frozen=True)
 class OfferedOperation(AvroModel):
     operation_name: str
-    operation_input_schema: List[str]
-    operation_output_schemas: List[str]
+    operation_input_schemas: List[str]
+    operation_output_schemas: Optional[List[str]]
 
+    def __post_init__(self):
+        if self.operation_output_schemas is not None and len(self.operation_output_schemas) == 0:
+            raise ValueError("missed output schemas")
+
+        if len(self.operation_input_schemas) == 0:
+            raise ValueError("missed input schemas")
 
 @dataclass(frozen=True)
 @registry
