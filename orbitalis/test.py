@@ -24,7 +24,8 @@ class MockOperationMessage(AvroEventPayload):
 
 @dataclass
 class MockCore(Core):
-    async def result_event_handler(self, topic: str, event: Event[OperationResultMessage]):
+
+    async def auth_event_handler(self, topic: str, event: Event[OperationResultMessage]):
         pass
 
 
@@ -114,7 +115,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 .with_closure_subscriber(lambda t, e: ...) \
                 .build(),
             needed_operations={
-                "operation": ConstrainedNeed(
+                "auth": ConstrainedNeed(
                     minimum=1
                 )
             }

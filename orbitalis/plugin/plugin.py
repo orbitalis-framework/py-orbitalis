@@ -16,7 +16,7 @@ from orbitalis.events.operation_result import OperationResultMessage
 from orbitalis.events.reply import RequestMessage, RejectMessage
 from orbitalis.events.response import ResponseMessage
 from orbitalis.events.wellknown_topic import WellKnownTopic
-from orbitalis.orb.orbiter import Orbiter
+from orbitalis.orbiter.orbiter import Orbiter
 from orbitalis.plugin.operation import Operation
 from orbitalis.plugin.state import PluginState
 from orbitalis.state_machine.state_machine import StateMachine

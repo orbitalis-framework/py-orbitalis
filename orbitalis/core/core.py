@@ -18,7 +18,7 @@ from orbitalis.events.reply import RequestMessage, RejectMessage
 from orbitalis.events.response import ResponseMessage
 from orbitalis.events.wellknown_topic import WellKnownTopic
 from orbitalis.core.need import Need, ConstrainedNeed
-from orbitalis.orb.orbiter import Orbiter
+from orbitalis.orbiter.orbiter import Orbiter
 
 from orbitalis.plugin.descriptor import PluginDescriptor
 from orbitalis.state_machine.state_machine import StateMachine
