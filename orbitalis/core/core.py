@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import override, Dict, Set, Optional, List, Tuple
 
-from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler
+from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler, event_handler
 from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
@@ -19,37 +19,13 @@ from orbitalis.events.response import ResponseMessage
 from orbitalis.events.wellknown_topic import WellKnownTopic
 from orbitalis.core.need import Need, ConstrainedNeed
 from orbitalis.orbiter.orbiter import Orbiter
-
-from orbitalis.plugin.descriptor import PluginDescriptor
+from orbitalis.orbiter.pending_request import PendingRequest
 from orbitalis.state_machine.state_machine import StateMachine
-
-
-@dataclass(frozen=True)
-class _PendingRequest:
-    operation_name: str
-    output_topic: str
-    when: datetime = field(default_factory=lambda: datetime.now())
-
-
-@dataclass(frozen=True)
-class _Connection:
-    operation_name: str
-    plugin_identifier: str
-    input_topic: str
-    input_schemas: List[str]
-    output_topic: str
-    output_schemas: List[str]
-    when: datetime = field(default_factory=lambda: datetime.now())
 
 
 @dataclass(kw_only=True)
 class Core(Orbiter, StateMachine[CoreState], ABC):
 
-    borrowed_operations: Dict[str, Dict[str, _Connection]] = field(default_factory=lambda: defaultdict(dict), init=False)     # operation_name => { plugin_identifier => Connection }
-    pending_plugins: Dict[str, Dict[str, _PendingRequest]] = field(default_factory=lambda: defaultdict(dict), init=False)       # plugin_identifier => { operation_name => when }
-
-    # === CONFIGURATION parameters ===
-    discover_topic: str = field(default_factory=lambda: WellKnownTopic.discover_topic())
     discovering_interval: float = field(default=2)
     needed_operations: Dict[str, ConstrainedNeed] = field(default_factory=dict)  # operation_name => Need
 
@@ -189,10 +165,10 @@ class Core(Orbiter, StateMachine[CoreState], ABC):
                     plugin_identifier
                 )
 
-    def build_operation_result_topic(self, plugin_identifier: str, operation_name: str) -> str:
-        return f"{operation_name}.{self.identifier}.{plugin_identifier}.result"
+    def build_operation_output_topic(self, plugin_identifier: str, operation_name: str) -> str:
+        return f"{operation_name}.{self.identifier}.{plugin_identifier}.output"
 
-    @schemafull_event_handler(OfferMessage.avro_schema_to_python())
+    @event_handler
     async def offer_event_handler(self, topic: str, event: Event[OfferMessage]):
         logging.debug(f"{self}: new offer: {topic} -> {event}")
 
@@ -215,10 +191,13 @@ class Core(Orbiter, StateMachine[CoreState], ABC):
                 handler=self.response_event_handler
             )
 
-            operations_to_request: Dict[str, str] = dict([(operation_name, self.build_operation_result_topic(event.payload.plugin_identifier, operation_name)) for operation_name in operations_to_request])
+            operations_to_request: Dict[str, str] = dict([(operation_name, self.build_operation_output_topic(event.payload.plugin_identifier, operation_name)) for operation_name in operations_to_request])
 
             for operation_name, result_topic in operations_to_request.items():
-                self.pending_plugins[event.payload.plugin_identifier][operation_name] = _PendingRequest(operation_name, result_topic)
+                self.pending_requests[event.payload.plugin_identifier][operation_name] = PendingRequest(
+                    operation_name=operation_name,
+                    output_topic=...
+                )
 
             try:
                 await self.eventbus_client.publish(
@@ -250,7 +229,7 @@ class Core(Orbiter, StateMachine[CoreState], ABC):
             )
 
 
-    @schemafull_event_handler(ResponseMessage.avro_schema_to_python())
+    @event_handler
     async def response_event_handler(self, topic: str, event: Event[ResponseMessage]):
         logging.debug(f"{self}: new response: {topic} -> {event}")
 
@@ -280,11 +259,6 @@ class Core(Orbiter, StateMachine[CoreState], ABC):
             except Exception as e:
                 logging.error(f"{self}: {e}")
                 await self.eventbus_client.unsubscribe(self.pending_plugins[event.payload.plugin_identifier][borrowed_operation_name].output_topic)
-
-    @schemafull_event_handler(OperationResultMessage.avro_schema_to_python())
-    @abstractmethod
-    async def result_event_handler(self, topic: str, event: Event[OperationResultMessage]):
-        raise NotImplemented()
 
     @override
     async def _internal_start(self, *args, **kwargs):

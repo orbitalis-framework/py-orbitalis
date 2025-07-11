@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler
 from busline.event.event import Event
-from orbitalis.core.descriptor import CoreDescriptor
 from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
 from orbitalis.events.operation_result import OperationResultMessage
@@ -17,18 +16,8 @@ from orbitalis.events.reply import RequestMessage, RejectMessage
 from orbitalis.events.response import ResponseMessage
 from orbitalis.events.wellknown_topic import WellKnownTopic
 from orbitalis.orbiter.orbiter import Orbiter
-from orbitalis.plugin.operation import Operation
 from orbitalis.plugin.state import PluginState
 from orbitalis.state_machine.state_machine import StateMachine
-
-
-@dataclass(frozen=True)
-class _Connection:
-    operation_name: str
-    core_identifier: str
-    input_topic: str
-    output_topic: str
-    when: datetime = field(default_factory=lambda: datetime.now())
 
 
 @dataclass(kw_only=True)
@@ -38,30 +27,9 @@ class Plugin(Orbiter, StateMachine, ABC):
     Author: Nicola Ricciardi
     """
 
-    operations: Dict[str, Operation] = field(default_factory=dict)     # operation_name => Operation
-
-    pending_cores: Dict[str, Dict[str, datetime]] = field(default_factory=lambda: defaultdict(dict), init=False)     # core_identifier => { operation_name => when }
-    lent_operations: Dict[str, Dict[str, _Connection]] = field(default_factory=lambda: defaultdict(dict), init=False)     # operation_name => { core_identifier => Connection }
-
-    # === CONFIGURATION parameters ===
-    discover_topic: str = field(default_factory=lambda: WellKnownTopic.discover_topic())
-
     def __post_init__(self):
         self.state = PluginState.CREATED
 
-        for attr_name in dir(self):
-            attr = getattr(self, attr_name)
-
-    def from_input_topic_to_connections(self, input_topic: str, operation_name: Optional[str] = None) -> List[_Connection]:
-        connections: List[_Connection] = []
-
-        for cores in self.lent_operations.values():
-            for core_identifier, connection in cores.items():
-                if connection.input_topic == input_topic:
-                    if operation_name is None or (operation_name is not None and connection.operation_name == operation_name):
-                        connections.append(connection)
-
-        return connections
 
     @override
     async def _internal_start(self, *args, **kwargs):

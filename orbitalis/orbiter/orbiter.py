@@ -6,6 +6,11 @@ from typing import Dict, List, Optional
 from busline.client.pubsub_client import PubTopicSubClient
 import uuid
 
+from orbitalis.events.wellknown_topic import WellKnownTopic
+from orbitalis.orbiter.connection import Connection
+from orbitalis.orbiter.operation import Operation
+from orbitalis.orbiter.pending_request import PendingRequest
+
 
 @dataclass(kw_only=True)
 class Orbiter(ABC):
@@ -18,26 +23,50 @@ class Orbiter(ABC):
 
     identifier: str = field(default_factory=lambda: str(uuid.uuid4()))
 
-    def discard_expired_pending_requests(self, /, expiration_date: Optional[datetime] = None, seconds: Optional[float] = None) -> int:
+    discover_topic: str = field(default_factory=lambda: WellKnownTopic.discover_topic())
+
+    operations: Dict[str, Operation] = field(default_factory=dict, init=False)     # operation_name => Operation
+    connections: Dict[str, Dict[str, Connection]] = field(default_factory=dict, init=False)    # remote_identifier => { operation_name => Connection }
+    pending_requests: Dict[str, Dict[str, PendingRequest]] = field(default_factory=dict, init=False)    # remote_identifier => { operation_name => PendingRequest }
+
+    def __post_init__(self):
+
+        # used to refresh operations
+        for attr_name in dir(self):
+            _ = getattr(self, attr_name)
+
+
+    def retrieve_connections(self, *, remote_identifier: Optional[str] = None, input_topic: Optional[str] = None, output_topic: Optional[str] = None, operation_name: Optional[str] = None) -> List[Connection]:
+        connections: List[Connection] = []
+
+        for remote_identifier_, operation_name_connection in self.connections.items():
+            if remote_identifier is not None and remote_identifier != remote_identifier_:
+                continue
+
+            for operation_name_, connection in operation_name_connection.items():
+                assert operation_name_ == connection.operation_name
+
+                if operation_name is not None and operation_name != operation_name_:
+                    continue
+
+                if input_topic is not None and input_topic != connection.input_topic:
+                    continue
+
+                if output_topic is not None and output_topic != connection.output_topic:
+                    continue
+
+                connections.append(connection)
+
+        return connections
+
+    def discard_expired_pending_requests(self):
         """
         Remove from pending requests expired requests based on datetime provided or seconds elapsed.
         Seconds override expiration_date.
         Return total amount of discarded requests
         """
 
-        if expiration_date is None and seconds is None:
-            raise ValueError("Provided at least one parameter")
-
-        expiration_date = datetime.now() - timedelta(seconds=seconds)
-
-        n = 0
-        for identifier, pending_req in self.pending_requests.items():
-            if pending_req.when < expiration_date:
-                del self.pending_requests[identifier]
-                n += 1
-                continue
-
-        return n
+        raise NotImplemented()
 
 
     async def start(self, *args, **kwargs):
