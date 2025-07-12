@@ -1,75 +1,22 @@
 import asyncio
 import unittest
 from typing import Any
-
 from dataclasses_avroschema.pydantic.v1 import AvroBaseModel
-
 from orbitalis.core.need import ConstrainedNeed
-from orbitalis.plugin.operation import operation, Policy
-from orbitalis.plugin.plugin import Plugin
-from busline.event.avro_payload import AvroEventPayload
+from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
+
 from busline.event.event import Event
 from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
 from orbitalis.core.core import Core
 from dataclasses import dataclass, field
 
-
-@dataclass(frozen=True)
-class MockOperationMessage(AvroEventPayload):
-    value: str
+from test.plugin.lamp_x_plugin import LampXPlugin
+from test.plugin.lamp_y_plugin import LampYPlugin
 
 
 @dataclass
-class MockCore(Core):
+class SmartHomeCore(Core):
     pass
-
-
-@dataclass
-class AuthPlugin(Plugin):
-
-    operation_call: int = 0
-    unlocked: bool = False
-    last_value: str = ""
-
-    def reset(self):
-        self.operation_call = 0
-        self.unlocked = False
-
-    @operation(
-        name="auth",
-        input_schemas=MockOperationMessage.avro_schema(),
-        policy=Policy(allowlist=["core1"])
-    )
-    async def auth_event_handler(self, topic: str, event: Event[MockOperationMessage]):
-        self.operation_call += 1
-        self.last_value = event.payload.value
-    #
-    #     if event.payload.value == "secret":
-    #         outcome = (1).to_bytes(1)
-    #         self.unlocked = True
-    #     else:
-    #         outcome = (0).to_bytes(1)
-    #         self.unlocked = False
-    #
-    #     connections = self.from_input_topic_to_connections(topic, "auth")
-    #
-    #     assert len(connections) == 1
-    #     connection = connections[0]
-    #
-    #     await self.send_result(
-    #         connection.output_topic,
-    #         "auth",
-    #         data=outcome
-    #     )
-
-    @operation(
-        name="dummy",
-        input_schemas=MockOperationMessage.avro_schema(),
-        policy=Policy(maximum=1)
-    )
-    async def dummy_event_handler(self, topic: str, event: Event[MockOperationMessage]):
-        self.operation_call += 1
-        self.last_value = event.payload.value
 
 
 
@@ -77,19 +24,34 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
 
     def setUp(self):
-        self.plugin = AuthPlugin(
-            identifier="plugin",
+        self.lamp_x_plugin = LampXPlugin(
+            identifier="lamp_x_plugin",
             eventbus_client=LocalPubTopicSubClientBuilder()\
                     .with_default_publisher()\
                     .with_closure_subscriber(lambda t, e: ...)\
                     .build(),
+            kwh=24
         )
 
-        self.assertTrue("auth" in self.plugin.operations.keys())
-        self.assertTrue("dummy" in self.plugin.operations)
+        self.assertTrue("turn_on" in self.lamp_x_plugin.operations)
+        self.assertTrue("turn_off" in self.lamp_x_plugin.operations)
+        self.assertTrue("get_status" in self.lamp_x_plugin.operations)
 
-        self.core = MockCore(
-            identifier="core",
+        self.lamp_y_plugin = LampYPlugin(
+            identifier="lamp_x_plugin",
+            eventbus_client=LocalPubTopicSubClientBuilder() \
+                .with_default_publisher() \
+                .with_closure_subscriber(lambda t, e: ...) \
+                .build(),
+            kwh=42
+        )
+
+        self.assertTrue("turn_on" in self.lamp_y_plugin.operations)
+        self.assertTrue("turn_off" in self.lamp_y_plugin.operations)
+        self.assertTrue("get_status" in self.lamp_y_plugin.operations)
+
+        self.smart_home1 = SmartHomeCore(
+            identifier="smart_home1",
             eventbus_client=LocalPubTopicSubClientBuilder() \
                 .with_default_publisher() \
                 .with_closure_subscriber(lambda t, e: ...) \
@@ -101,8 +63,8 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        self.core2 = MockCore(
-            identifier="core2",
+        self.smart_home2 = SmartHomeCore(
+            identifier="smart_home2",
             eventbus_client=LocalPubTopicSubClientBuilder() \
                 .with_default_publisher() \
                 .with_closure_subscriber(lambda t, e: ...) \

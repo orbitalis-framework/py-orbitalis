@@ -25,7 +25,7 @@ from orbitalis.state_machine.state_machine import StateMachine
 
 
 @dataclass(kw_only=True)
-class Core(Orbiter, StateMachine[CoreState], ABC):
+class Core(Orbiter, StateMachine[CoreState]):
 
     discovering_interval: float = field(default=2)
     needed_operations: Dict[str, ConstrainedNeed] = field(default_factory=dict)  # operation_name => Need

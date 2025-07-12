@@ -48,9 +48,6 @@ class Plugin(Orbiter, StateMachine, ABC):
 
 
     async def subscribe_on_discover(self):
-        # TODO: gestione eccezioni
-        # TODO: gestione on_event
-
         await self.eventbus_client.subscribe(self.discover_topic, self.discover_event_handler)
 
     def can_lend_to_core(self, core_identifier: str, operation_name: str) -> bool:

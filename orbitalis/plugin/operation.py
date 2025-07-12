@@ -1,7 +1,7 @@
 import functools
 import inspect
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Awaitable, Callable, List, Type
+from typing import Optional, Dict, Awaitable, Callable, List, Type, Self
 
 from busline.client.subscriber.topic_subscriber.event_handler import event_handler
 from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
@@ -16,28 +16,49 @@ class Policy(AllowBlockListMixin):
     maximum: Optional[int] = field(default=None)
 
 
-@dataclass(frozen=True)
+@dataclass(kw_only=True)
+class OperationSchema:
+    schemas: Optional[List[str]] = field(default=None)
+    undefined_schema: bool = field(default=False)
+    empty_schema: bool = field(default=False)
+
+    @classmethod
+    def from_schema(cls, schema: str) -> Self:
+        return OperationSchema(schemas=[schema])
+
+    @classmethod
+    def empty(cls) -> Self:
+        return OperationSchema(empty_schema=True)
+
+    @classmethod
+    def undefined(cls) -> Self:
+        return OperationSchema(undefined_schema=True)
+
+    @classmethod
+    def from_payload(cls, payload: Type[AvroEventPayload]) -> Self:
+        return cls.from_schema(payload.avro_schema())
+
+    def __post_init__(self):
+        if len(self.schemas) == 0 and not self.undefined_schema and not self.empty_schema:
+            raise ValueError("missed schemas")
+
+
+@dataclass(kw_only=True)
 class Operation:
     name: str
     handler: EventHandler
-    input_schemas: List[str]
-    output_schemas: Optional[List[str]] = field(default=None)
-    policy: Policy = field(default=None)
+    policy: Policy
+    input: OperationSchema
+    output: Optional[OperationSchema]
 
-    def __post_init__(self):
-        if self.output_schemas is not None and len(self.output_schemas) == 0:
-            raise ValueError("missed output schemas")
 
-        if len(self.input_schemas) == 0:
-            raise ValueError("missed input schemas")
-
+@dataclass(kw_only=True)
 class _OperationDescriptor:
-    def __init__(self, func, operation_name, policy, input_schemas, output_schemas):
-        self.func = event_handler(func)
-        self.operation_name = operation_name
-        self.policy = policy
-        self.output_schemas = output_schemas
-        self.input_schemas = input_schemas
+    operation_name: str
+    func: Callable[[str, Event], Awaitable]
+    policy: Policy
+    input: OperationSchema
+    output: Optional[OperationSchema]
 
     def __get__(self, instance, owner):
         if instance is None:
@@ -48,21 +69,26 @@ class _OperationDescriptor:
                 name=self.operation_name,
                 handler=self.func.__get__(instance, owner),
                 policy=self.policy,
-                output_schemas=self.output_schemas,
-                input_schemas=self.input_schemas
+                input=self.input,
+                output=self.output
             )
 
         return self.func.__get__(instance, owner)
 
 
-def operation(*, policy: Policy, input_schemas: List[str] | str, output_schemas: Optional[List[Dict] | Dict] = None, name: Optional[str] = None):
-    if isinstance(input_schemas, str):
-        input_schemas = [input_schemas]
+def operation(*, policy: Policy, input: OperationSchema, output: Optional[OperationSchema] = None, name: Optional[str] = None):
 
     def decorator(func):
         if not inspect.iscoroutinefunction(func):
             raise TypeError("Event handler must be async")
 
         op_name = name or func.__name__
-        return _OperationDescriptor(func, op_name, policy, input_schemas, output_schemas)
+        return _OperationDescriptor(
+            func=func,
+            operation_name=op_name,
+            policy=policy,
+            input=input,
+            output=output
+        )
+
     return decorator
