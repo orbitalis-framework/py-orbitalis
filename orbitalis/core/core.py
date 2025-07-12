@@ -160,6 +160,13 @@ class Core(Orbiter, StateMachine[CoreState], ABC):
         if not self.needed_operations[offered_operation.operation_name].is_compliance(plugin_identifier):
             return False
 
+        if not self.compare_schema_n_to_n(not_satisfied_need.input_schemas, offered_operation.operation_input_schemas):
+            return False
+
+        if not_satisfied_need.output_schemas is not None:
+            if offered_operation.operation_output_schemas is None or self.compare_schema_n_to_n(not_satisfied_need.output_schemas, offered_operation.operation_output_schemas):
+                return False
+
         return True
 
     def build_response_topic(self, plugin_identifier: str) -> str:

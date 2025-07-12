@@ -96,6 +96,18 @@ class Plugin(Orbiter, StateMachine, ABC):
                     if current_reserved_slot_for_operation >= self.operations[core_needed_operation_name].policy.maximum:
                         continue
 
+                # check input_schemas compatibility
+                if not self.compare_schema_n_to_n(self.operations[core_needed_operation_name].input_schemas, core_needed_operation_information.input_schemas):
+                    continue
+
+                # check output_schemas compatibility
+                if core_needed_operation_information.output_schemas is not None:
+                    if self.operations[core_needed_operation_name].output_schemas is None:
+                        continue
+
+                    if not self.compare_schema_n_to_n(core_needed_operation_information.output_schemas, self.operations[core_needed_operation_name].output_schemas):
+                        continue
+
                 if self.can_lend_to_core(event.payload.core_identifier, core_needed_operation_name):
                     offerable_operations.append(core_needed_operation_name)
 

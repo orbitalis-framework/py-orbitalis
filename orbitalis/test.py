@@ -114,6 +114,59 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             }
         )
 
+    async def test_schema_compatibility(self):
+        self.assertTrue(
+            self.core.compare_two_schemas(
+                MockOperationMessage.avro_schema(),
+                MockOperationMessage.avro_schema()
+            )
+        )
+
+        self.assertTrue(
+            self.core.compare_two_schemas(
+                "123",
+                "123"
+            )
+        )
+
+        self.assertFalse(
+            self.core.compare_two_schemas(
+                "123",
+                "456"
+            )
+        )
+
+        self.assertTrue(
+            self.core.compare_schema_n_to_n(
+                [
+                    "123",
+                    MockOperationMessage.avro_schema(),
+                    "456"
+                ],
+                [
+                    "7654",
+                    "9877",
+                    MockOperationMessage.avro_schema(),
+                    "124"
+                ]
+            )
+        )
+
+        self.assertFalse(
+            self.core.compare_schema_n_to_n(
+                [
+                    "123",
+                    "456"
+                ],
+                [
+                    "7654",
+                    "9877",
+                    MockOperationMessage.avro_schema(),
+                    "124"
+                ]
+            )
+        )
+
     async def test_handshake(self):
         self.assertFalse(self.core.is_compliance())
 
