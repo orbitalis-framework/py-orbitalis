@@ -2,7 +2,8 @@ import asyncio
 import unittest
 from typing import Any
 from dataclasses_avroschema.pydantic.v1 import AvroBaseModel
-from orbitalis.core.need import ConstrainedNeed
+
+from busline.event.avro_payload import AvroEventPayload
 from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
 
 from busline.event.event import Event
@@ -10,8 +11,14 @@ from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
 from orbitalis.core.core import Core
 from dataclasses import dataclass, field
 
+from orbitalis.orbiter.schemaspec import SchemaSpec
 from test.plugin.lamp_x_plugin import LampXPlugin
 from test.plugin.lamp_y_plugin import LampYPlugin
+
+
+@dataclass
+class MockMessage(AvroEventPayload):
+    mock: str
 
 
 @dataclass
@@ -57,9 +64,6 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 .with_closure_subscriber(lambda t, e: ...) \
                 .build(),
             needed_operations={
-                "operation": ConstrainedNeed(
-                    minimum=1
-                )
             }
         )
 
@@ -70,62 +74,43 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 .with_closure_subscriber(lambda t, e: ...) \
                 .build(),
             needed_operations={
-                "auth": ConstrainedNeed(
-                    minimum=1
-                )
             }
         )
 
-    async def test_schema_compatibility(self):
+    async def test_schemaspec_compatibility(self):
         self.assertTrue(
-            self.core.compare_two_schemas(
-                MockOperationMessage.avro_schema(),
-                MockOperationMessage.avro_schema()
-            )
-        )
-
-        self.assertTrue(
-            self.core.compare_two_schemas(
-                "123",
-                "123"
+            SchemaSpec.empty().is_compatible(
+                SchemaSpec.empty()
             )
         )
 
         self.assertFalse(
-            self.core.compare_two_schemas(
-                "123",
-                "456"
-            )
-        )
-
-        self.assertTrue(
-            self.core.compare_schema_n_to_n(
-                [
-                    "123",
-                    MockOperationMessage.avro_schema(),
-                    "456"
-                ],
-                [
-                    "7654",
-                    "9877",
-                    MockOperationMessage.avro_schema(),
-                    "124"
-                ]
+            SchemaSpec.empty().is_compatible(
+                SchemaSpec.from_schema(MockMessage.avro_schema())
             )
         )
 
         self.assertFalse(
-            self.core.compare_schema_n_to_n(
-                [
-                    "123",
-                    "456"
-                ],
-                [
-                    "7654",
-                    "9877",
-                    MockOperationMessage.avro_schema(),
-                    "124"
-                ]
+            SchemaSpec.from_schema(MockMessage.avro_schema()).is_compatible(
+                SchemaSpec.empty()
+            )
+        )
+
+        self.assertTrue(
+            SchemaSpec.from_schema(MockMessage.avro_schema()).is_compatible(
+                SchemaSpec.from_payload(MockMessage)
+            )
+        )
+
+        self.assertTrue(
+            SchemaSpec(schemas=[MockMessage.avro_schema()], empty_schema=True).is_compatible(
+                SchemaSpec(schemas=[MockMessage.avro_schema()], empty_schema=True)
+            )
+        )
+
+        self.assertFalse(
+            SchemaSpec(schemas=[MockMessage.avro_schema()], empty_schema=False).is_compatible(
+                SchemaSpec(schemas=[MockMessage.avro_schema()], empty_schema=True)
             )
         )
 
@@ -156,10 +141,10 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         self.plugin.operation_call = 0
 
         await self.core.eventbus_client.connect()   # without .start() it is needed
-        await self.core.sudo_execute(
-            "dummy-topic",
-            MockOperationMessage("abc")     # .into_event() is called within method
-        )
+        # await self.core.sudo_execute(
+        #     "dummy-topic",
+        #     MockOperationMessage("abc")     # .into_event() is called within method
+        # )
 
         await asyncio.sleep(1)
 

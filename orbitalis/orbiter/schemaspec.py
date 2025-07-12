@@ -1,0 +1,91 @@
+import json
+from dataclasses import dataclass, field
+from typing import Optional, List, Type, Self
+from abc import abstractmethod
+from busline.event.avro_payload import AvroEventPayload
+
+
+@dataclass(kw_only=True)
+class SchemaSpec:
+    """
+
+    Author: Nicola Ricciardi
+    """
+
+    schemas: List[str] = field(default=list)
+    empty_schema: bool = field(default=False)
+
+    @property
+    def has_some_explicit_schemas(self) -> bool:
+        return len(self.schemas) > 0
+
+    @property
+    def is_undefined(self) -> bool:
+        return not self.has_some_explicit_schemas and not self.empty_schema
+
+    @classmethod
+    def from_schema(cls, schema: str) -> Self:
+        return cls(schemas=[schema])
+
+    @classmethod
+    def empty(cls) -> Self:
+        return cls(empty_schema=True)
+
+    @classmethod
+    def undefined(cls) -> Self:
+        return cls(schemas=[], empty_schema=False)
+
+    @classmethod
+    def from_payload(cls, payload: Type[AvroEventPayload]) -> Self:
+        return cls.from_schema(payload.avro_schema())
+
+
+    def is_compatible(self, other: Self, *, undefined_is_compatible: bool = False) -> bool:
+        if self.is_undefined and other.is_undefined:
+            return True
+
+        if not undefined_is_compatible:
+            if (not self.is_undefined and other.is_undefined) or (self.is_undefined and not other.is_undefined):
+                return False
+        else:
+            if self.is_undefined or other.is_undefined:
+                return True
+
+        if (self.empty_schema and not other.empty_schema) or (not self.empty_schema and other.empty_schema):
+            return False
+
+        if (self.has_some_explicit_schemas and not other.has_some_explicit_schemas) or (not self.has_some_explicit_schemas and other.has_some_explicit_schemas):
+            return False
+
+        for my_schema in self.schemas:
+            for other_schema in other.schemas:
+                if not self.compare_two_schema(my_schema, other_schema):
+                    return False
+
+        return True
+
+
+    @classmethod
+    def compare_two_schema(cls, schema_a: str, schema_b: str):
+        """
+        Compare two schemas and return True if they are equal
+        """
+
+        try:
+            schema_a_dict = json.loads(schema_a)
+            schema_b_dict = json.loads(schema_b)
+
+            return schema_a_dict == schema_b_dict
+        except:
+            return schema_a == schema_b
+
+
+@dataclass
+class InputOutputSchemaSpec:
+    input: SchemaSpec
+    output: Optional[SchemaSpec]
+
+
+    @property
+    def has_output(self) -> bool:
+        return self.output is not None

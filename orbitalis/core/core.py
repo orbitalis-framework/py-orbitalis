@@ -1,3 +1,4 @@
+import copy
 import random
 from abc import abstractmethod, ABC
 from collections import defaultdict
@@ -12,12 +13,12 @@ from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
 from orbitalis.core.hook import Hook
 from orbitalis.core.state import CoreState
-from orbitalis.events.discover import DiscoverMessage, NeededOperationInformation
+from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
 from orbitalis.events.reply import RequestMessage, RejectMessage
 from orbitalis.events.response import ResponseMessage
 from orbitalis.events.wellknown_topic import WellKnownTopic
-from orbitalis.core.need import Need, ConstrainedNeed
+from orbitalis.core.need import Need
 from orbitalis.orbiter.connection import Connection
 from orbitalis.orbiter.orbiter import Orbiter
 from orbitalis.orbiter.pending_request import PendingRequest
@@ -28,7 +29,7 @@ from orbitalis.state_machine.state_machine import StateMachine
 class Core(Orbiter, StateMachine[CoreState]):
 
     discovering_interval: float = field(default=2)
-    needed_operations: Dict[str, ConstrainedNeed] = field(default_factory=dict)  # operation_name => Need
+    needed_operations: Dict[str, Need] = field(default_factory=dict)  # operation_name => Need
     hooks: Dict[str, Hook] = field(default_factory=dict, init=False)    # hook_name => Hook
 
     def __post_init__(self):
@@ -53,11 +54,7 @@ class Core(Orbiter, StateMachine[CoreState]):
         if operation_name not in self.needed_operations.keys():
             raise KeyError(f"operation {operation_name} is not required")
 
-        need = Need(
-            minimum=self.needed_operations[operation_name].minimum,
-            maximum=self.needed_operations[operation_name].minimum,
-            mandatory=self.needed_operations[operation_name].mandatory.copy() if self.needed_operations[operation_name].mandatory is not None else None,
-        )
+        need = copy.deepcopy(self.needed_operations[operation_name])
 
         for connection in self.retrieve_connections(operation_name=operation_name):
 
@@ -124,14 +121,7 @@ class Core(Orbiter, StateMachine[CoreState]):
                 logging.debug(f"{self}: operation {operation_name} already satisfied")
                 continue
 
-            needed_operations[operation_name] = NeededOperationInformation(
-                operation_name=operation_name,
-                mandatory=not_satisfied_need.mandatory,
-                allowlist=self.needed_operations[operation_name].allowlist,
-                blocklist=self.needed_operations[operation_name].blocklist,
-                input_schemas=self.needed_operations[operation_name].input_schemas,
-                output_schemas=self.needed_operations[operation_name].output_schemas
-            )
+            needed_operations[operation_name] = not_satisfied_need
 
         if len(needed_operations) == 0:
             return
@@ -160,11 +150,11 @@ class Core(Orbiter, StateMachine[CoreState]):
         if not self.needed_operations[offered_operation.operation_name].is_compliance(plugin_identifier):
             return False
 
-        if not self.compare_schema_n_to_n(not_satisfied_need.input_schemas, offered_operation.operation_input_schemas):
+        if not not_satisfied_need.input.is_compatible(offered_operation.input):
             return False
 
-        if not_satisfied_need.output_schemas is not None:
-            if offered_operation.operation_output_schemas is None or self.compare_schema_n_to_n(not_satisfied_need.output_schemas, offered_operation.operation_output_schemas):
+        if not_satisfied_need.has_output:
+            if not offered_operation.has_output or not_satisfied_need.output.is_compatible(offered_operation.output):
                 return False
 
         return True

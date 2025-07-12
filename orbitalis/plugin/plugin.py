@@ -25,6 +25,8 @@ from orbitalis.state_machine.state_machine import StateMachine
 class Plugin(Orbiter, StateMachine, ABC):
     """
 
+    TODO: a way to provide dynamic policies for operations
+
     Author: Nicola Ricciardi
     """
 
@@ -94,15 +96,15 @@ class Plugin(Orbiter, StateMachine, ABC):
                         continue
 
                 # check input_schemas compatibility
-                if not self.compare_schema_n_to_n(self.operations[core_needed_operation_name].input_schemas, core_needed_operation_information.input_schemas):
+                if not self.operations[core_needed_operation_name].input.is_compatible(core_needed_operation_information.input):
                     continue
 
                 # check output_schemas compatibility
-                if core_needed_operation_information.output_schemas is not None:
-                    if self.operations[core_needed_operation_name].output_schemas is None:
+                if core_needed_operation_information.has_output:
+                    if not self.operations[core_needed_operation_name].has_output:
                         continue
 
-                    if not self.compare_schema_n_to_n(core_needed_operation_information.output_schemas, self.operations[core_needed_operation_name].output_schemas):
+                    if not core_needed_operation_information.output.is_compatible(self.operations[core_needed_operation_name].output):
                         continue
 
                 if self.can_lend_to_core(event.payload.core_identifier, core_needed_operation_name):

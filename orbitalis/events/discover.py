@@ -5,15 +5,9 @@ from dataclasses_avroschema import AvroModel
 
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
+from orbitalis.core.need import Need
 from orbitalis.utils.allowblocklist import AllowBlockListMixin
 
-
-@dataclass(kw_only=True)
-class NeededOperationInformation(AllowBlockListMixin, AvroModel):
-    operation_name: str
-    mandatory: Optional[List[str]]
-    input_schemas: Optional[List[str]]
-    output_schemas: Optional[List[str]]
 
 
 @dataclass(frozen=True)
@@ -29,4 +23,4 @@ class DiscoverMessage(AvroEventPayload):
 
     core_identifier: str
     offer_topic: str
-    needed_operations: Dict[str, NeededOperationInformation]   # operation_name => NeededOperationInformation
+    needed_operations: Dict[str, Need]   # operation_name => Need

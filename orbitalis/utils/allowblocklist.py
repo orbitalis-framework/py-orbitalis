@@ -3,7 +3,7 @@ from abc import ABC
 from typing import Optional, Dict, Set, List
 
 
-@dataclass
+@dataclass(kw_only=True)
 class AllowBlockListMixin(ABC):
     """
     allowlist: admitted Orbs (by identifiers)

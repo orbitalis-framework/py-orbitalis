@@ -41,6 +41,8 @@ class Orbiter(ABC):
         self.pending_requests[remote_identifier][operation_name] = pending_request
 
     def retrieve_connections(self, *, remote_identifier: Optional[str] = None, input_topic: Optional[str] = None, output_topic: Optional[str] = None, operation_name: Optional[str] = None) -> List[Connection]:
+        # TODO: cache?
+
         connections: List[Connection] = []
 
         for remote_identifier_, operation_name_connection in self.connections.items():
@@ -66,34 +68,6 @@ class Orbiter(ABC):
     def promote_pending_request_to_connection(self, remote_identifier: str, operation_name: str):
         raise NotImplemented()      # TODO
 
-    def compare_two_schemas(self, schema_a: str, schema_b: str) -> bool:
-        """
-        Compare two schemas and return True if they are compatible
-        """
-
-        try:
-            schema_a_dict = json.loads(schema_a)
-            schema_b_dict = json.loads(schema_b)
-
-            return schema_a_dict == schema_b_dict
-        except:
-            return schema_a == schema_b
-
-    def compare_schema_1_to_n(self, schema: str, group_of_schemas: List[str]) -> bool:
-
-        for s in group_of_schemas:
-            if self.compare_two_schemas(schema, s):
-                return True
-
-        return False
-
-    def compare_schema_n_to_n(self, group_of_schemas_a: List[str], group_of_schemas_b: List[str]) -> bool:
-
-        for schema in group_of_schemas_a:
-            if self.compare_schema_1_to_n(schema, group_of_schemas_b):
-                return True
-
-        return False
 
     def discard_expired_pending_requests(self):
         """
