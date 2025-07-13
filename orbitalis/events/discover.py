@@ -5,7 +5,7 @@ from dataclasses_avroschema import AvroModel
 
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
-from orbitalis.core.need import Need
+from orbitalis.core.need import Constraint
 from orbitalis.utils.allowblocklist import AllowBlockListMixin
 
 
@@ -23,4 +23,4 @@ class DiscoverMessage(AvroEventPayload):
 
     core_identifier: str
     offer_topic: str
-    needed_operations: Dict[str, Need]   # operation_name => Need
+    needed_operations: Dict[str, Constraint]   # operation_name => Need

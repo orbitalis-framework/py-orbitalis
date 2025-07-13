@@ -10,7 +10,7 @@ from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
 from orbitalis.core.core import Core
 from dataclasses import dataclass, field
 
-from orbitalis.core.need import Need
+from orbitalis.core.need import Constraint, Need
 from orbitalis.orbiter.schemaspec import SchemaSpec
 from orbitalis.plugin.operation import Policy
 from tests.plugin.lamp_x_plugin import LampXPlugin
@@ -76,14 +76,14 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 .build(),
             raise_exceptions=True,
             needed_operations={
-                "turn_on": Need(
+                "turn_on": Need(Constraint(
                     mandatory=["lamp_x_plugin"],
                     input=SchemaSpec.empty()
-                ),
-                "turn_off": Need(
+                )),
+                "turn_off": Need(Constraint(
                     mandatory=["lamp_x_plugin"],
                     input=SchemaSpec.empty()
-                ),
+                )),
             }
         )
 
@@ -95,14 +95,14 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 .build(),
             raise_exceptions=True,
             needed_operations={
-                "turn_on": Need(
+                "turn_on": Need(Constraint(
                     mandatory=["lamp_x_plugin"],
                     input=SchemaSpec.empty()
-                ),
-                "turn_off": Need(
+                )),
+                "turn_off": Need(Constraint(
                     mandatory=["lamp_x_plugin"],
                     input=SchemaSpec.empty()
-                ),
+                )),
             }
         )
 
@@ -155,11 +155,11 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(self.smart_home2.is_compliance())
 
-        # await self.smart_home2.start()
-        #
-        # await asyncio.sleep(1)
-        #
-        # self.assertFalse(self.smart_home2.is_compliance())
+        await self.smart_home2.start()
+
+        await asyncio.sleep(2)
+
+        self.assertFalse(self.smart_home2.is_compliance())      # turn_on should be missed
 
 
     async def test_turn_on_off_plugin_x(self):

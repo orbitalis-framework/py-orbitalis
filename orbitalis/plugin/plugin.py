@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler, event_handler
 from busline.event.event import Event
+from orbitalis.core.need import Constraint, SetupData
 from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
 from orbitalis.events.reply import RequestMessage, RejectMessage
@@ -55,54 +56,67 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
 
         return False
 
+    def __allow_offer(self, core_identifier: str, core_needed_operation_name: str, core_needed_operation_constraint: Constraint) -> bool:
+        if core_needed_operation_name not in self.operations:
+            return False
+
+        # check compatibility with block/allow list
+        if (core_needed_operation_constraint.blocklist is not None and self.identifier in core_needed_operation_constraint.blocklist) \
+                or (core_needed_operation_constraint.allowlist is not None and self.identifier not in core_needed_operation_constraint.allowlist):
+            return False
+
+        # check if already in pending request
+        if core_identifier in self.pending_requests.keys() \
+                and core_needed_operation_name in self.pending_requests_by_remote_identifier(
+            core_identifier):
+            return False
+
+        # check if this plugin have already lent operation to core
+        if len(self.retrieve_connections(remote_identifier=core_identifier,
+                                         operation_name=core_needed_operation_name)) > 0:
+            return False
+
+        # check if there are slot available
+        if self.operations[core_needed_operation_name].policy.maximum is not None:
+            current_reserved_slot_for_operation: int = len(
+                self.retrieve_connections(operation_name=core_needed_operation_name))
+
+            for core_identifier, operations in self.pending_requests.items():
+                if core_needed_operation_name in operations.keys():
+                    current_reserved_slot_for_operation += 1
+
+            if current_reserved_slot_for_operation >= self.operations[core_needed_operation_name].policy.maximum:
+                return False
+
+        # check input_schemas compatibility
+        if not self.operations[core_needed_operation_name].input.is_compatible(
+                core_needed_operation_constraint.input):
+            return False
+
+        # check output_schemas compatibility
+        if core_needed_operation_constraint.has_output:
+            if not self.operations[core_needed_operation_name].has_output:
+                return False
+
+            if not core_needed_operation_constraint.output.is_compatible(
+                    self.operations[core_needed_operation_name].output):
+                return False
+
+        if not self.can_lend_to_core(core_identifier, core_needed_operation_name):
+            return False
+
+        return True
+
     @event_handler
     async def discover_event_handler(self, topic: str, event: Event[DiscoverMessage]):
         logging.info(f"{self}: new discover event from {event.payload.core_identifier}: {topic} -> {event}")
 
         offerable_operations: List[str] = []
 
-        for core_needed_operation_name, core_needed_operation_information in event.payload.needed_operations.items():
-            if core_needed_operation_name in self.operations:
+        for core_needed_operation_name, core_needed_operation_constraint in event.payload.needed_operations.items():
 
-                # check compatibility with block/allow list
-                if (core_needed_operation_information.blocklist is not None and self.identifier in core_needed_operation_information.blocklist) \
-                        or (core_needed_operation_information.allowlist is not None and self.identifier not in core_needed_operation_information.allowlist):
-                    continue
-
-                # check if already in pending request
-                if event.payload.core_identifier in self.pending_requests.keys() \
-                        and core_needed_operation_name in self.pending_requests_by_remote_identifier(event.payload.core_identifier):
-                    continue
-
-                # check if this plugin have already lent operation to core
-                if len(self.retrieve_connections(remote_identifier=event.payload.core_identifier, operation_name=core_needed_operation_name)) > 0:
-                    continue
-
-                # check if there are slot available
-                if self.operations[core_needed_operation_name].policy.maximum is not None:
-                    current_reserved_slot_for_operation: int = len(self.retrieve_connections(operation_name=core_needed_operation_name))
-
-                    for core_identifier, operations in self.pending_requests.items():
-                        if core_needed_operation_name in operations.keys():
-                            current_reserved_slot_for_operation += 1
-
-                    if current_reserved_slot_for_operation >= self.operations[core_needed_operation_name].policy.maximum:
-                        continue
-
-                # check input_schemas compatibility
-                if not self.operations[core_needed_operation_name].input.is_compatible(core_needed_operation_information.input):
-                    continue
-
-                # check output_schemas compatibility
-                if core_needed_operation_information.has_output:
-                    if not self.operations[core_needed_operation_name].has_output:
-                        continue
-
-                    if not core_needed_operation_information.output.is_compatible(self.operations[core_needed_operation_name].output):
-                        continue
-
-                if self.can_lend_to_core(event.payload.core_identifier, core_needed_operation_name):
-                    offerable_operations.append(core_needed_operation_name)
+            if self.__allow_offer(event.payload.core_identifier, core_needed_operation_name, core_needed_operation_constraint):
+                offerable_operations.append(core_needed_operation_name)
 
         logging.debug(f"{self}: send offer for these operations: {offerable_operations}")
         if len(offerable_operations) > 0:
@@ -177,23 +191,45 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
         for operation_name in event.payload.rejected_operations:
             self.pending_requests_by_remote_identifier(event.payload.core_identifier).pop(operation_name, None)
 
-    async def setup_and_register_to_core(self, response_topic: str, core_identifier: str, lent_operations: Dict[str, Tuple[str, str]], denied_operations: List[str]):
+    async def _setup_operation(self, core_identifier: str, operation_name: str, setup_data: SetupData):
         """
-        lent_operations: operation_name => (input_topic, result_topic)
+        Hook
 
-        1. Subscribe to result topic, i.e. lent_operations[operation_name][1]
-        2. Sent Response to core
-        3. Remove pending core requests
+        TODO: doc
         """
+
+    async def request_event_handler(self, topic: str, event: Event[RequestMessage]):
+
+        # TODO: subscribe to keepalive topic and close topics
+
+        logging.debug(f"{self}: core {event.payload.core_identifier} confirms plug request for these operations: {event.payload.requested_operations}")
+
+        confirmed_operations: List[str] = []
+        operations_no_longer_available: List[str] = []
+        for requested_operation in event.payload.requested_operations.values():
+            plug_confirmed: bool = self.can_lend_to_core(event.payload.core_identifier, requested_operation.name)
+
+            logging.debug(f"{self}: can lend to {event.payload.core_identifier}? {plug_confirmed}")
+
+            if plug_confirmed:
+                confirmed_operations.append(requested_operation.name)
+            else:
+                operations_no_longer_available.append(requested_operation.name)
 
         subscribed_topics: List[str] = []
-        for lent_operation_name, (input_topic, output_topic) in lent_operations.items():
-            try:
-                    await self.eventbus_client.subscribe(input_topic, self.operations[lent_operation_name].handler)
-                    subscribed_topics.append(input_topic)
+        confirmed_operations_and_input_topic: Dict[str, str] = {}
+        for confirmed_operation_name in confirmed_operations:
+            input_topic: str = self.build_operation_input_topic_for_core(event.payload.core_identifier, confirmed_operation_name)
+            output_topic: str = event.payload.requested_operations[confirmed_operation_name].output_topic
 
-                    self.pending_requests_by_remote_identifier(core_identifier)[lent_operation_name].input_topic = input_topic
-                    self.pending_requests_by_remote_identifier(core_identifier)[lent_operation_name].output_topic = output_topic
+            try:
+                await self.eventbus_client.subscribe(input_topic, self.operations[confirmed_operation_name].handler)
+                subscribed_topics.append(input_topic)
+
+                self.pending_requests_by_remote_identifier(event.payload.core_identifier)[confirmed_operation_name].input_topic = input_topic
+                self.pending_requests_by_remote_identifier(event.payload.core_identifier)[confirmed_operation_name].output_topic = output_topic
+
+                confirmed_operations_and_input_topic[confirmed_operation_name] = input_topic
 
             except Exception as e:
                 logging.error(f"{self}: {e}")
@@ -206,69 +242,41 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
                 return
 
         try:
+
             await self.eventbus_client.publish(
-                response_topic,
+                event.payload.response_topic,
                 ResponseMessage(
                     plugin_identifier=self.identifier,
-                    operations=dict([(lent_operation_name, input_topic) for lent_operation_name, (input_topic, output_topic) in lent_operations.items()]),
-                    denied_operations=denied_operations
+                    confirmed_operations=confirmed_operations_and_input_topic,
+                    operations_no_longer_available=operations_no_longer_available
                 ).into_event()
             )
 
-            for operation_name in denied_operations:
-                if operation_name not in self.pending_requests_by_remote_identifier(core_identifier):
-                    logging.warning(f"{self}: operation without no pending request")
-                    continue
+            for operation_name in operations_no_longer_available:
+                self.remove_pending_request(event.payload.core_identifier, operation_name)
 
-                self.remove_pending_request(core_identifier, operation_name)
+            for operation_name in confirmed_operations:
+                self.promote_pending_request_to_connection(event.payload.core_identifier, operation_name)
 
-            for operation_name in lent_operations.keys():
-                if operation_name not in self.pending_requests_by_remote_identifier(core_identifier):
-                    logging.warning(f"{self}: operation without no pending request")
-                    continue
+                setup_data = event.payload.requested_operations[operation_name].setup_data
 
-                self.promote_pending_request_to_connection(core_identifier, operation_name)
+                if setup_data is not None:
+                    await self._setup_operation(
+                        event.payload.core_identifier,
+                        operation_name,
+                        setup_data
+                    )
 
 
         except Exception as e:
             logging.error(f"{self}: {e}")
 
-            await self.eventbus_client.multi_unsubscribe([input_topic for input_topic, result_topic in lent_operations.values()])
+            await self.eventbus_client.multi_unsubscribe(
+                [input_topic for input_topic in confirmed_operations_and_input_topic.values()]
+            )
 
             if self.raise_exceptions:
                 raise e
-
-    async def request_event_handler(self, topic: str, event: Event[RequestMessage]):
-
-        # TODO: subscribe to keepalive topic and close topics
-
-        logging.debug(f"{self}: core {event.payload.core_identifier} confirms plug request for these operations: {event.payload.requested_operations}")
-
-        operations_to_lend: List[str] = []
-        denied_operations: List[str] = []
-        for operation_name in event.payload.requested_operations:
-            plug_confirmed: bool = self.can_lend_to_core(event.payload.core_identifier, operation_name)
-
-            logging.debug(f"{self}: can lend to {event.payload.core_identifier}? {plug_confirmed}")
-
-            if plug_confirmed:
-                operations_to_lend.append(operation_name)
-            else:
-                denied_operations.append(operation_name)
-
-        lent_operations = {}
-        for operation_name in operations_to_lend:
-            lent_operations[operation_name] = (
-                self.build_operation_input_topic_for_core(event.payload.core_identifier, operation_name),  # input_topic
-                event.payload.requested_operations[operation_name]  # output_topic
-            )
-
-        await self.setup_and_register_to_core(
-            event.payload.response_topic,
-            event.payload.core_identifier,
-            lent_operations,
-            denied_operations
-        )
 
     @event_handler
     async def reply_event_handler(self, topic: str, event: Event[RequestMessage | RejectMessage]):

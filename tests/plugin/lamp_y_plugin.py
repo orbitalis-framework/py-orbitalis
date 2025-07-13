@@ -25,15 +25,6 @@ class TurnOffMessage(AvroEventPayload):
 class LampYPlugin(LampPlugin):
     power: float = field(default=1)
 
-    @operation(
-        name="turn_on",
-        input=SchemaSpec.from_schema(TurnOnMessage.avro_schema()),
-        policy=Policy()
-    )
-    async def turn_on_event_handler(self, topic: str, event: Event[TurnOnMessage]):
-        self.turn_on()
-        self.power = event.payload.power
-
     @override
     def turn_off(self):
         self.status = LampStatus.OFF
@@ -42,6 +33,17 @@ class LampYPlugin(LampPlugin):
             self.total_kwh += self.power * self.kwh * (datetime.now() - self.on_at).total_seconds() / 3600
 
             self.on_at = None
+
+    # === OPERATIONs ===
+
+    @operation(
+        name="turn_on",
+        input=SchemaSpec.from_schema(TurnOnMessage.avro_schema()),
+        policy=Policy()
+    )
+    async def turn_on_event_handler(self, topic: str, event: Event[TurnOnMessage]):
+        self.turn_on()
+        self.power = event.payload.power
 
     @operation(
         name="turn_off",
@@ -53,3 +55,4 @@ class LampYPlugin(LampPlugin):
 
         if event.payload.reset_consumption:
             self.total_kwh = 0
+

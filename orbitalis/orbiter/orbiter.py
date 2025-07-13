@@ -75,6 +75,10 @@ class Orbiter(ABC):
         self.add_connection(remote_identifier, operation_name, pending_request.into_connection())
 
     def remove_pending_request(self, remote_identifier: str, operation_name: str):
+        if remote_identifier not in self.pending_requests or operation_name not in self.pending_requests[remote_identifier]:
+            logging.warning(f"{self}: pending request not present for identifier '{remote_identifier}' and operation '{operation_name}'")
+            return
+
         del self.pending_requests[remote_identifier][operation_name]
 
     def discard_expired_pending_requests(self):

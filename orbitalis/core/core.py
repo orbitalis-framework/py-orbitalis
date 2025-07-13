@@ -15,10 +15,10 @@ from orbitalis.core.hook import Hook, HooksProviderMixin
 from orbitalis.core.state import CoreState
 from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
-from orbitalis.events.reply import RequestMessage, RejectMessage
+from orbitalis.events.reply import RequestMessage, RejectMessage, RequestedOperation
 from orbitalis.events.response import ResponseMessage
 from orbitalis.events.wellknown_topic import WellKnownTopic
-from orbitalis.core.need import Need
+from orbitalis.core.need import Constraint, Need
 from orbitalis.orbiter.connection import Connection
 from orbitalis.orbiter.orbiter import Orbiter
 from orbitalis.orbiter.pending_request import PendingRequest
@@ -36,27 +36,41 @@ class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
 
         self.state = CoreState.CREATED
 
-    def need_for_operation(self, operation_name: str) -> Need:
+    def _on_compliance(self):
+        """
+        Hook
+
+        TODO: doc
+        """
+
+    def _on_not_compliance(self):
+        """
+        Hook
+
+        TODO: doc
+        """
+
+    def constraint_for_operation(self, operation_name: str) -> Constraint:
 
         if operation_name not in self.needed_operations.keys():
             raise KeyError(f"operation {operation_name} is not required")
 
-        need = copy.deepcopy(self.needed_operations[operation_name])
+        constraint = copy.deepcopy(self.needed_operations[operation_name]).constraint
 
         for connection in self.retrieve_connections(operation_name=operation_name):
 
-            if need.mandatory is not None and connection.remote_identifier in need.mandatory:
-                need.mandatory.remove(connection.remote_identifier)
+            if constraint.mandatory is not None and connection.remote_identifier in constraint.mandatory:
+                constraint.mandatory.remove(connection.remote_identifier)
 
-            if need.maximum is not None:
-                need.maximum = max(0, need.maximum - 1)
+            if constraint.maximum is not None:
+                constraint.maximum = max(0, constraint.maximum - 1)
 
-            need.minimum = max(0, need.minimum - 1)
+            constraint.minimum = max(0, constraint.minimum - 1)
 
-        return need
+        return constraint
 
     def is_compliance_for_operation(self, operation_name: str) -> bool:
-        need = self.need_for_operation(operation_name)
+        need = self.constraint_for_operation(operation_name)
 
         if need.mandatory is not None and len(need.mandatory) > 0:
             return False
@@ -81,15 +95,17 @@ class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
 
         if self.is_compliance():
             self.state = CoreState.COMPLIANT
+            self._on_compliance()
         else:
             self.state = CoreState.NOT_COMPLIANT
+            self._on_not_compliance()
 
 
     def build_offer_topic(self) -> str:
         return f"$handshake.{self.identifier}.offer"
 
     @classmethod
-    def _is_plugin_operation_needed_by_need(cls, need: Need) -> bool:
+    def _is_plugin_operation_needed_by_need(cls, need: Constraint) -> bool:
         return need.minimum > 0 \
             or (need.mandatory is not None and len(need.mandatory) > 0) \
             or (need.maximum is None or need.maximum > 0)
@@ -100,7 +116,7 @@ class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
 
         needed_operations = {}
         for operation_name in self.needed_operations.keys():
-            not_satisfied_need = self.need_for_operation(operation_name)
+            not_satisfied_need = self.constraint_for_operation(operation_name)
 
             discover_operation = Core._is_plugin_operation_needed_by_need(not_satisfied_need)
 
@@ -129,12 +145,12 @@ class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
 
     def is_plugin_operation_needed_and_pluggable(self, plugin_identifier: str, offered_operation: OfferedOperation) -> bool:
 
-        not_satisfied_need = self.need_for_operation(offered_operation.operation_name)
+        not_satisfied_need = self.constraint_for_operation(offered_operation.operation_name)
 
         if not Core._is_plugin_operation_needed_by_need(not_satisfied_need):
             return False
 
-        if not self.needed_operations[offered_operation.operation_name].is_compliance(plugin_identifier):
+        if not not_satisfied_need.is_compliance(plugin_identifier):
             return False
 
         if not not_satisfied_need.input.is_compatible(offered_operation.input, undefined_is_compatible=self.undefined_is_compatible):
@@ -178,16 +194,16 @@ class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
                 handler=self.response_event_handler
             )
 
-            requested_operations: Dict[str, str] = {}
+            requested_operations: Dict[str, RequestedOperation] = {}
             for offered_operation in operations_to_request:
 
                 output_topic = None
                 output = None
-                if self.needed_operations[offered_operation.operation_name].has_output:
+                if self.needed_operations[offered_operation.operation_name].constraint.has_output:
                     if not offered_operation.has_output:
                         continue    # invalid offer
 
-                    if not self.needed_operations[offered_operation.operation_name].output.is_compatible(offered_operation.output):
+                    if not self.needed_operations[offered_operation.operation_name].constraint.output.is_compatible(offered_operation.output):
                         continue    # invalid offer
 
                     output = offered_operation.output
@@ -205,7 +221,11 @@ class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
                     input=offered_operation.input
                 ))
 
-                requested_operations[offered_operation.operation_name] = output_topic
+                requested_operations[offered_operation.operation_name] = RequestedOperation(
+                    name=offered_operation.operation_name,
+                    output_topic=output_topic,
+                    setup_data=self.needed_operations[offered_operation.operation_name].setup_data
+                )
 
             try:
                 await self.eventbus_client.publish(
@@ -246,7 +266,7 @@ class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
 
         logging.debug(f"{self}: new response: {topic} -> {event}")
 
-        for borrowed_operation_name, input_topic in event.payload.operations.items():
+        for borrowed_operation_name, input_topic in event.payload.confirmed_operations.items():
 
             if event.payload.plugin_identifier not in self.pending_requests \
                 or borrowed_operation_name not in self.pending_requests_by_remote_identifier(event.payload.plugin_identifier):
@@ -307,17 +327,17 @@ class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
             if plugin_identifier not in self.plugin_descriptors:
                 raise ValueError("plugin not plugged")
 
-            if operation_name not in self.plugin_descriptors[plugin_identifier].operations:
+            if operation_name not in self.plugin_descriptors[plugin_identifier].confirmed_operations:
                 raise ValueError(f"plugin has not operation {operation_name} (or it has not share it with this core {self.identifier})")
 
-            if payload is not None and self.plugin_descriptors[plugin_identifier].operations[operation_name] != payload:
+            if payload is not None and self.plugin_descriptors[plugin_identifier].confirmed_operations[operation_name] != payload:
                 raise ValueError("incompatible input payload schema and plugin operation")
 
             topics.add(self.operation_plugin_result_topic[operation_name][plugin_identifier])
 
         elif all or any:
             for plugin_identifier, topic in self.operation_plugin_result_topic[operation_name].items():
-                if payload is not None and self.plugin_descriptors[plugin_identifier].operations[operation_name] != payload:
+                if payload is not None and self.plugin_descriptors[plugin_identifier].confirmed_operations[operation_name] != payload:
                     continue
 
                 topics.add(topic)

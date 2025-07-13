@@ -40,7 +40,7 @@ class SchemaSpec:
         return cls.from_schema(payload.avro_schema())
 
 
-    def is_compatible(self, other: Self, *, undefined_is_compatible: bool = False) -> bool:
+    def is_compatible(self, other: Self, *, undefined_is_compatible: bool = False, strict: bool = False) -> bool:
         if self.is_undefined and other.is_undefined:
             return True
 
@@ -58,8 +58,24 @@ class SchemaSpec:
             return False
 
         for my_schema in self.schemas:
+            found = False
+
             for other_schema in other.schemas:
-                if not self.compare_two_schema(my_schema, other_schema):
+                if self.compare_two_schema(my_schema, other_schema):
+                    found = True
+
+            if not found:
+                return False
+
+        if strict:
+            for other_schema in other.schemas:
+                found = False
+
+                for my_schema in self.schemas:
+                    if self.compare_two_schema(other_schema, my_schema):
+                        found = True
+
+                if not found:
                     return False
 
         return True

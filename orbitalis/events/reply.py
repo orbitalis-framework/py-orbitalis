@@ -1,15 +1,25 @@
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, TypeVar, Generic
+
+from dataclasses_avroschema import AvroModel
 
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
 from orbitalis.core.descriptor import CoreDescriptor
+from orbitalis.core.need import SetupData
+
+
+@dataclass(kw_only=True)
+class RequestedOperation(Generic[SetupData], AvroModel):
+    name: str
+    output_topic: Optional[str]
+    setup_data: Optional[SetupData]
 
 
 @dataclass(frozen=True)
 @registry
-class RequestMessage(AvroEventPayload):
+class RequestMessage(AvroEventPayload, Generic[SetupData]):
     """
     Core --- request ---> Plugin
 
@@ -24,8 +34,9 @@ class RequestMessage(AvroEventPayload):
     # core_close_connection_topic: str
     # core_keepalive_topic: str
 
-    requested_operations: Dict[str, str]      # operation_name => output_topic
+    requested_operations: Dict[str, RequestedOperation[SetupData]]  # operation_name => RequestedOperation
     response_topic: Optional[str] = field(default=None)
+    setup_data: Optional[SetupData] = field(default=None)
 
     def __post_init__(self):
         if len(self.requested_operations) == 0:
