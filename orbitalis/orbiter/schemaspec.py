@@ -80,10 +80,10 @@ class SchemaSpec:
             return schema_a == schema_b
 
 
-@dataclass
+@dataclass(kw_only=True)
 class InputOutputSchemaSpec:
     input: SchemaSpec
-    output: Optional[SchemaSpec]
+    output: Optional[SchemaSpec] = field(default=None)
 
 
     @property

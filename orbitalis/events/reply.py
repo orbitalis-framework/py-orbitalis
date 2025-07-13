@@ -19,8 +19,11 @@ class RequestMessage(AvroEventPayload):
     """
 
     core_identifier: str
-    core_keepalive_topic: str
-    core_general_purpose_hook: str
+
+    # TODO
+    # core_close_connection_topic: str
+    # core_keepalive_topic: str
+
     requested_operations: Dict[str, str]      # operation_name => output_topic
     response_topic: Optional[str] = field(default=None)
 

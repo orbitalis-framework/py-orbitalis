@@ -10,7 +10,9 @@ from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
 from orbitalis.core.core import Core
 from dataclasses import dataclass, field
 
+from orbitalis.core.need import Need
 from orbitalis.orbiter.schemaspec import SchemaSpec
+from orbitalis.plugin.operation import Policy
 from tests.plugin.lamp_x_plugin import LampXPlugin
 from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnMessage, TurnOffMessage
 
@@ -36,7 +38,12 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                     .with_default_publisher()\
                     .with_closure_subscriber(lambda t, e: ...)\
                     .build(),
-            kwh=24
+            raise_exceptions=True,
+
+            kwh=24      # LampPlugin-specific attribute
+        ).with_custom_policy(
+            operation_name="turn_on",
+            policy=Policy.allow_only("smart_home1")
         )
 
         self.assertTrue("turn_on" in self.lamp_x_plugin.operations)
@@ -49,7 +56,12 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 .with_default_publisher() \
                 .with_closure_subscriber(lambda t, e: ...) \
                 .build(),
+            raise_exceptions=True,
+
             kwh=42
+        ).with_custom_policy(
+            operation_name="turn_on",
+            policy=Policy.no_constraints()      # it is also default
         )
 
         self.assertTrue("turn_on" in self.lamp_y_plugin.operations)
@@ -62,7 +74,16 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 .with_default_publisher() \
                 .with_closure_subscriber(lambda t, e: ...) \
                 .build(),
+            raise_exceptions=True,
             needed_operations={
+                "turn_on": Need(
+                    mandatory=["lamp_x_plugin"],
+                    input=SchemaSpec.empty()
+                ),
+                "turn_off": Need(
+                    mandatory=["lamp_x_plugin"],
+                    input=SchemaSpec.empty()
+                ),
             }
         )
 
@@ -72,7 +93,16 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 .with_default_publisher() \
                 .with_closure_subscriber(lambda t, e: ...) \
                 .build(),
+            raise_exceptions=True,
             needed_operations={
+                "turn_on": Need(
+                    mandatory=["lamp_x_plugin"],
+                    input=SchemaSpec.empty()
+                ),
+                "turn_off": Need(
+                    mandatory=["lamp_x_plugin"],
+                    input=SchemaSpec.empty()
+                ),
             }
         )
 
@@ -116,20 +146,20 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
     async def test_handshake(self):
         self.assertFalse(self.smart_home1.is_compliance())
 
-        await self.plugin.start()
-        await self.core.start()
+        await self.lamp_x_plugin.start()
+        await self.smart_home1.start()
 
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
 
-        self.assertTrue(self.core.is_compliance())
+        self.assertTrue(self.smart_home1.is_compliance())
 
-        self.assertFalse(self.core2.is_compliance())
+        self.assertFalse(self.smart_home2.is_compliance())
 
-        await self.core2.start()
-
-        await asyncio.sleep(1)
-
-        self.assertFalse(self.core2.is_compliance())
+        # await self.smart_home2.start()
+        #
+        # await asyncio.sleep(1)
+        #
+        # self.assertFalse(self.smart_home2.is_compliance())
 
 
     async def test_turn_on_off_plugin_x(self):

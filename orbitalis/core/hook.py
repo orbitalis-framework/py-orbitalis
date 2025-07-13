@@ -8,6 +8,7 @@ from busline.client.subscriber.topic_subscriber.event_handler.event_handler impo
 from busline.client.subscriber.topic_subscriber.event_handler.schemafull_handler import SchemafullEventHandler
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
+from orbitalis.orbiter.schemaspec import SchemaSpec
 from orbitalis.utils.allowblocklist import AllowBlockListMixin
 
 
@@ -21,5 +22,5 @@ class Hook:
 
     hook_name: str
     handler: EventHandler
-    input_schemas: List[str]
-    related_operations: List[str] = field(default_factory=list)
+    input: SchemaSpec
+    related_operations: List[str]

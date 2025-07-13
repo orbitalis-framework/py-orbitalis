@@ -1,5 +1,7 @@
 import functools
 import inspect
+from abc import ABC
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Awaitable, Callable, List, Type, Self, Any
 
@@ -14,6 +16,9 @@ from orbitalis.utils.allowblocklist import AllowBlockListMixin
 class Policy(AllowBlockListMixin):
     maximum: Optional[int] = field(default=None)
 
+    @classmethod
+    def no_constraints(cls) -> Self:
+        return cls(maximum=None, allowlist=None, blocklist=None)
 
 
 @dataclass(kw_only=True)
@@ -50,7 +55,10 @@ class _OperationDescriptor:
         return self.func.__get__(instance, owner)
 
 
-def operation(*, policy: Policy, input: SchemaSpec, output: Optional[SchemaSpec] = None, name: Optional[str] = None):
+def operation(*, input: SchemaSpec, policy: Optional[Policy] = None, output: Optional[SchemaSpec] = None, name: Optional[str] = None):
+
+    if policy is None:
+        policy = Policy.no_constraints()
 
     def decorator(func):
         if not inspect.iscoroutinefunction(func):
@@ -67,3 +75,26 @@ def operation(*, policy: Policy, input: SchemaSpec, output: Optional[SchemaSpec]
         )
 
     return decorator
+
+
+@dataclass(kw_only=True)
+class HasOperationsMixin(ABC):
+
+    operations: Dict[str, Operation] = field(default_factory=dict)     # operation_name => Operation
+
+
+    def __post_init__(self):
+
+        # used to refresh operations
+        for attr_name in dir(self):
+            _ = getattr(self, attr_name)
+
+    def with_operation(self, operation_name: str, operation: Operation) -> Self:
+        self.operations[operation_name] = operation
+
+        return self
+
+    def with_custom_policy(self, operation_name: str, policy: Policy) -> Self:
+        self.operations[operation_name].policy = policy
+
+        return self

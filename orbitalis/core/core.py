@@ -29,20 +29,11 @@ from orbitalis.state_machine.state_machine import StateMachine
 class Core(Orbiter, StateMachine[CoreState]):
 
     discovering_interval: float = field(default=2)
-    needed_operations: Dict[str, Need] = field(default_factory=dict)  # operation_name => Need
+    needed_operations: Dict[str, Need] = field(default_factory=dict)    # operation_name => Need
     hooks: Dict[str, Hook] = field(default_factory=dict, init=False)    # hook_name => Hook
 
     def __post_init__(self):
         self.state = CoreState.CREATED
-
-    @property
-    def keepalive_topic(self) -> str:
-        return WellKnownTopic.build_keepalive_topic(self.identifier)
-
-    @property
-    def general_purpose_hook_topic(self) -> str:
-        return WellKnownTopic.build_keepalive_topic(self.identifier)
-
 
     def need_for_operation(self, operation_name: str) -> Need:
         """
@@ -150,11 +141,11 @@ class Core(Orbiter, StateMachine[CoreState]):
         if not self.needed_operations[offered_operation.operation_name].is_compliance(plugin_identifier):
             return False
 
-        if not not_satisfied_need.input.is_compatible(offered_operation.input):
+        if not not_satisfied_need.input.is_compatible(offered_operation.input, undefined_is_compatible=self.undefined_is_compatible):
             return False
 
         if not_satisfied_need.has_output:
-            if not offered_operation.has_output or not_satisfied_need.output.is_compatible(offered_operation.output):
+            if not offered_operation.has_output or not_satisfied_need.output.is_compatible(offered_operation.output, undefined_is_compatible=self.undefined_is_compatible):
                 return False
 
         return True
@@ -172,13 +163,13 @@ class Core(Orbiter, StateMachine[CoreState]):
     async def offer_event_handler(self, topic: str, event: Event[OfferMessage]):
         logging.debug(f"{self}: new offer: {topic} -> {event}")
 
-        operations_to_request: List[str] = []
-        operations_to_reject: List[str] = []
+        operations_to_request: List[OfferedOperation] = []
+        operations_to_reject: List[OfferedOperation] = []
         for offered_operation in event.payload.offered_operations:
             if self.is_plugin_operation_needed_and_pluggable(event.payload.plugin_identifier, offered_operation):
-                operations_to_request.append(offered_operation.operation_name)
+                operations_to_request.append(offered_operation)
             else:
-                operations_to_reject.append(offered_operation.operation_name)
+                operations_to_reject.append(offered_operation)
 
 
         response_topic: str = self.build_response_topic(event.payload.plugin_identifier)
@@ -191,37 +182,41 @@ class Core(Orbiter, StateMachine[CoreState]):
                 handler=self.response_event_handler
             )
 
-            operations_to_request: Dict[str, str] = dict([(operation_name, self.build_operation_output_topic(event.payload.plugin_identifier, operation_name)) for operation_name in operations_to_request])
+            requested_operations: Dict[str, str] = {}
+            for offered_operation in operations_to_request:
 
-            keepalive_topic = self.keepalive_topic      # change if keepalive topic depends on plugin
+                output_topic = self.build_operation_output_topic(event.payload.plugin_identifier, offered_operation.operation_name)
 
-            for operation_name, output_topic in operations_to_request.items():
-
-                self.add_pending_request(event.payload.plugin_identifier, operation_name, PendingRequest(
-                    operation_name=operation_name,
+                self.add_pending_request(event.payload.plugin_identifier, offered_operation.operation_name, PendingRequest(
+                    operation_name=offered_operation.operation_name,
                     remote_identifier=event.payload.plugin_identifier,
-                    keepalive_to_local_topic=keepalive_topic,
                     output_topic=output_topic,
                     offer_topic=topic,
                     response_topic=response_topic,
-                    reply_topic=event.payload.reply_topic
+                    reply_topic=event.payload.reply_topic,
+                    input=offered_operation.input
                 ))
+
+                requested_operations[offered_operation.operation_name] = output_topic
 
             try:
                 await self.eventbus_client.publish(
                     topic=event.payload.reply_topic,
                     event=RequestMessage(
                         core_identifier=self.identifier,
-                        core_keepalive_topic=keepalive_topic,
-                        core_general_purpose_hook=self.general_purpose_hook_topic,
                         response_topic=response_topic,
-                        requested_operations=operations_to_request
+                        requested_operations=requested_operations
                     ).into_event()
                 )
+
             except Exception as e:
                 logging.error(f"{self}: {e}")
-                for operation_name, result_topic in operations_to_request.items():
+
+                for operation_name, result_topic in requested_operations.items():
                     del self.pending_requests[event.payload.plugin_identifier][operation_name]
+
+                if self.raise_exceptions:
+                    raise e
 
 
         if len(operations_to_reject) > 0:
@@ -232,7 +227,7 @@ class Core(Orbiter, StateMachine[CoreState]):
                 event=RejectMessage(
                     core_identifier=self.identifier,
                     description="Not needed anymore, sorry",
-                    rejected_operations=operations_to_reject
+                    rejected_operations=[offered_operation.operation_name for offered_operation in operations_to_reject]
                 ).into_event()
             )
 
@@ -251,17 +246,22 @@ class Core(Orbiter, StateMachine[CoreState]):
                 continue
 
             try:
-                await self.eventbus_client.subscribe(
-                    self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic,
-                    self.result_event_handler
-                )
+                # TODO
+                # await self.eventbus_client.subscribe(
+                #     self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic,
+                #     ...
+                # )
 
+                self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].input_topic = input_topic
                 self.promote_pending_request_to_connection(event.payload.plugin_identifier, borrowed_operation_name)
-
 
             except Exception as e:
                 logging.error(f"{self}: {e}")
+
                 await self.eventbus_client.unsubscribe(self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic)
+
+                if self.raise_exceptions:
+                    raise e
 
     @override
     async def _internal_start(self, *args, **kwargs):
@@ -327,4 +327,6 @@ class Core(Orbiter, StateMachine[CoreState]):
         await self.eventbus_client.publish(topic, payload.into_event() if payload is not None else None)
 
 
+    def __str__(self):
+        return f"Core('{self.identifier}')"
 

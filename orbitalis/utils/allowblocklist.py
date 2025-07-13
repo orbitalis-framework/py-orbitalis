@@ -1,6 +1,6 @@
 from dataclasses import dataclass,field
 from abc import ABC
-from typing import Optional, Dict, Set, List
+from typing import Optional, Dict, Set, List, Self
 
 
 @dataclass(kw_only=True)
@@ -19,6 +19,10 @@ class AllowBlockListMixin(ABC):
     def __post_init__(self):
         if self.allowlist is not None and self.blocklist is not None:
             raise ValueError("allowlist and blocklist can not be used together")
+
+    @classmethod
+    def allow_only(cls, identifier: str) -> Self:
+        return cls(allowlist=[identifier])
 
     def is_compliance(self, identifier: str) -> bool:
         if self.blocklist is not None and identifier in self.blocklist:

@@ -1,6 +1,7 @@
 import json
 import logging
 from abc import ABC
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from busline.client.pubsub_client import PubTopicSubClient
@@ -24,8 +25,11 @@ class Orbiter(ABC):
 
     discover_topic: str = field(default_factory=lambda: WellKnownTopic.discover_topic())
 
-    connections: Dict[str, Dict[str, Connection]] = field(default_factory=dict, init=False)    # remote_identifier => { operation_name => Connection }
-    pending_requests: Dict[str, Dict[str, PendingRequest]] = field(default_factory=dict, init=False)    # remote_identifier => { operation_name => PendingRequest }
+    raise_exceptions: bool = field(default=False)
+
+    undefined_is_compatible: bool = False
+    connections: Dict[str, Dict[str, Connection]] = field(default_factory=lambda: defaultdict(dict), init=False)    # remote_identifier => { operation_name => Connection }
+    pending_requests: Dict[str, Dict[str, PendingRequest]] = field(default_factory=lambda: defaultdict(dict), init=False)    # remote_identifier => { operation_name => PendingRequest }
 
 
     def connections_by_remote_identifier(self, remote_identifier: str) -> Dict[str, Connection]:
@@ -66,8 +70,12 @@ class Orbiter(ABC):
         return connections
 
     def promote_pending_request_to_connection(self, remote_identifier: str, operation_name: str):
-        raise NotImplemented()      # TODO
+        pending_request = self.pending_requests_by_remote_identifier(remote_identifier)[operation_name]
 
+        self.add_connection(remote_identifier, operation_name, pending_request.into_connection())
+
+    def remove_pending_request(self, remote_identifier: str, operation_name: str):
+        del self.pending_requests[remote_identifier][operation_name]
 
     def discard_expired_pending_requests(self):
         """
