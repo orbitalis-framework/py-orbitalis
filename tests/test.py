@@ -1,7 +1,6 @@
 import asyncio
 import unittest
 from typing import Any
-from dataclasses_avroschema.pydantic.v1 import AvroBaseModel
 
 from busline.event.avro_payload import AvroEventPayload
 from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
@@ -12,8 +11,8 @@ from orbitalis.core.core import Core
 from dataclasses import dataclass, field
 
 from orbitalis.orbiter.schemaspec import SchemaSpec
-from test.plugin.lamp_x_plugin import LampXPlugin
-from test.plugin.lamp_y_plugin import LampYPlugin
+from tests.plugin.lamp_x_plugin import LampXPlugin
+from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnMessage, TurnOffMessage
 
 
 @dataclass
@@ -115,7 +114,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_handshake(self):
-        self.assertFalse(self.core.is_compliance())
+        self.assertFalse(self.smart_home1.is_compliance())
 
         await self.plugin.start()
         await self.core.start()
@@ -133,33 +132,61 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.core2.is_compliance())
 
 
-    async def test_operation(self):
-        await self.plugin.start()
+    async def test_turn_on_off_plugin_x(self):
+        await self.lamp_x_plugin.start()
 
-        await self.plugin.eventbus_client.subscribe("dummy-topic", self.plugin.dummy_event_handler)
+        await self.lamp_x_plugin.eventbus_client.subscribe("turn_on_topic", self.lamp_x_plugin.turn_on_event_handler)
+        await self.lamp_x_plugin.eventbus_client.subscribe("turn_off_topic", self.lamp_x_plugin.turn_off_event_handler)
 
-        self.plugin.operation_call = 0
+        self.lamp_x_plugin.turn_off()
+        self.lamp_x_plugin.total_kwh = 0
 
-        await self.core.eventbus_client.connect()   # without .start() it is needed
-        # await self.core.sudo_execute(
-        #     "dummy-topic",
-        #     MockOperationMessage("abc")     # .into_event() is called within method
-        # )
+        await self.smart_home1.eventbus_client.connect()   # without .start() it is needed
+
+        await self.smart_home1.sudo_execute("turn_on_topic")
 
         await asyncio.sleep(1)
 
-        self.assertEqual(self.plugin.operation_call, 1)
-        self.assertEqual(self.plugin.last_value, "abc")
+        self.assertTrue(self.lamp_x_plugin.is_on)
 
-        await self.core.eventbus_client.publish(     # equal to sudo_execute
-            "dummy-topic",
-            MockOperationMessage("secret").into_event()     # need to be an event
+        await self.smart_home1.sudo_execute("turn_off_topic")
+
+        await asyncio.sleep(1)
+
+        self.assertTrue(self.lamp_x_plugin.is_off)
+
+        await self.lamp_x_plugin.stop()
+
+    async def test_turn_on_off_plugin_y(self):
+        await self.lamp_y_plugin.start()
+
+        await self.lamp_y_plugin.eventbus_client.subscribe("turn_on_topic", self.lamp_y_plugin.turn_on_event_handler)
+        await self.lamp_y_plugin.eventbus_client.subscribe("turn_off_topic", self.lamp_y_plugin.turn_off_event_handler)
+
+        self.lamp_y_plugin.turn_off()
+        self.lamp_y_plugin.total_kwh = 0
+
+        await self.smart_home1.eventbus_client.connect()   # without .start() it is needed
+
+        await self.smart_home1.sudo_execute(
+            "turn_on_topic",
+            TurnOnMessage(power=0.5)    # .into_event() is called within the method
         )
 
         await asyncio.sleep(1)
 
-        self.assertEqual(self.plugin.operation_call, 2)
-        self.assertEqual(self.plugin.last_value, "secret")
+        self.assertTrue(self.lamp_y_plugin.is_on)
+
+        await self.smart_home1.eventbus_client.publish(
+            "turn_off_topic",
+            TurnOffMessage(reset_consumption=True).into_event()
+        )
+
+        await asyncio.sleep(1)
+
+        self.assertTrue(self.lamp_y_plugin.is_off)
+
+        await self.lamp_y_plugin.stop()
 
 
 

@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
 from typing import override
 from busline.event.event import Event
-from orbitalis.plugin.operation import OperationSchema, Policy, operation
-from test.plugin.lamp_plugin import LampPlugin, LampStatus
+from orbitalis.orbiter.schemaspec import SchemaSpec
+from orbitalis.plugin.operation import Policy, operation
+from tests.plugin.lamp_plugin import LampPlugin, LampStatus
 
 
 @dataclass
@@ -10,16 +11,16 @@ class LampXPlugin(LampPlugin):
 
     @operation(
         name="turn_on",
-        input=OperationSchema.empty(),
+        input=SchemaSpec.empty(),
         policy=Policy()
     )
     async def turn_on_event_handler(self, topic: str, event: Event):
-        self._turn_on()
+        self.turn_on()
 
     @operation(
         name="turn_off",
-        input=OperationSchema.empty(),
+        input=SchemaSpec.empty(),
         policy=Policy()
     )
     async def turn_off_event_handler(self, topic: str, event: Event):
-        self._turn_off()
+        self.turn_off()

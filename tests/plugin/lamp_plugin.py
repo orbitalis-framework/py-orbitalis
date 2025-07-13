@@ -6,7 +6,8 @@ from typing import Optional
 
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
-from orbitalis.plugin.operation import operation, Policy, OperationSchema
+from orbitalis.orbiter.schemaspec import SchemaSpec
+from orbitalis.plugin.operation import operation, Policy
 from orbitalis.plugin.plugin import Plugin
 
 
@@ -27,13 +28,21 @@ class LampPlugin(Plugin, ABC):
     on_at: Optional[datetime] = field(default=None)
     total_kwh: float = field(default=0.0)
 
-    def _turn_on(self):
+    @property
+    def is_on(self) -> bool:
+        return self.status == LampStatus.ON
+
+    @property
+    def is_off(self) -> bool:
+        return self.status == LampStatus.OFF
+
+    def turn_on(self):
         self.status = LampStatus.ON
 
         if self.on_at is None:
             self.on_at = datetime.now()
 
-    def _turn_off(self):
+    def turn_off(self):
         self.status = LampStatus.OFF
 
         if self.on_at is not None:
@@ -43,8 +52,8 @@ class LampPlugin(Plugin, ABC):
 
     @operation(
         name="get_status",
-        input=OperationSchema.empty(),
-        output=OperationSchema.from_payload(StatusMessage),
+        input=SchemaSpec.empty(),
+        output=SchemaSpec.from_payload(StatusMessage),
         policy=Policy()
     )
     async def get_status_event_handler(self, topic: str, event: Event):

@@ -12,7 +12,7 @@ class SchemaSpec:
     Author: Nicola Ricciardi
     """
 
-    schemas: List[str] = field(default=list)
+    schemas: List[str] = field(default_factory=list)
     empty_schema: bool = field(default=False)
 
     @property
