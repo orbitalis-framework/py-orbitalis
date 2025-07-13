@@ -78,7 +78,7 @@ def operation(*, input: SchemaSpec, policy: Optional[Policy] = None, output: Opt
 
 
 @dataclass(kw_only=True)
-class HasOperationsMixin(ABC):
+class OperationsProviderMixin(ABC):
 
     operations: Dict[str, Operation] = field(default_factory=dict)     # operation_name => Operation
 

@@ -11,7 +11,7 @@ from busline.client.subscriber.topic_subscriber.event_handler import schemafull_
 from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
-from orbitalis.core.hook import Hook
+from orbitalis.core.hook import Hook, HooksProviderMixin
 from orbitalis.core.state import CoreState
 from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
@@ -26,21 +26,17 @@ from orbitalis.state_machine.state_machine import StateMachine
 
 
 @dataclass(kw_only=True)
-class Core(Orbiter, StateMachine[CoreState]):
+class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
 
     discovering_interval: float = field(default=2)
     needed_operations: Dict[str, Need] = field(default_factory=dict)    # operation_name => Need
-    hooks: Dict[str, Hook] = field(default_factory=dict, init=False)    # hook_name => Hook
 
     def __post_init__(self):
+        super().__post_init__()
+
         self.state = CoreState.CREATED
 
     def need_for_operation(self, operation_name: str) -> Need:
-        """
-        Return an int and a list of string:
-
-        - int: minimum number
-        """
 
         if operation_name not in self.needed_operations.keys():
             raise KeyError(f"operation {operation_name} is not required")
@@ -185,12 +181,24 @@ class Core(Orbiter, StateMachine[CoreState]):
             requested_operations: Dict[str, str] = {}
             for offered_operation in operations_to_request:
 
-                output_topic = self.build_operation_output_topic(event.payload.plugin_identifier, offered_operation.operation_name)
+                output_topic = None
+                output = None
+                if self.needed_operations[offered_operation.operation_name].has_output:
+                    if not offered_operation.has_output:
+                        continue    # invalid offer
+
+                    if not self.needed_operations[offered_operation.operation_name].output.is_compatible(offered_operation.output):
+                        continue    # invalid offer
+
+                    output = offered_operation.output
+                    output_topic = self.build_operation_output_topic(event.payload.plugin_identifier, offered_operation.operation_name)
+
 
                 self.add_pending_request(event.payload.plugin_identifier, offered_operation.operation_name, PendingRequest(
                     operation_name=offered_operation.operation_name,
                     remote_identifier=event.payload.plugin_identifier,
                     output_topic=output_topic,
+                    output=output,
                     offer_topic=topic,
                     response_topic=response_topic,
                     reply_topic=event.payload.reply_topic,
@@ -246,6 +254,7 @@ class Core(Orbiter, StateMachine[CoreState]):
                 continue
 
             try:
+
                 # TODO
                 # await self.eventbus_client.subscribe(
                 #     self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic,

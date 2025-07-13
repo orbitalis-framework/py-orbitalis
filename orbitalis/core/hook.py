@@ -22,5 +22,15 @@ class Hook:
 
     hook_name: str
     handler: EventHandler
-    input: SchemaSpec
     related_operations: List[str]
+
+
+@dataclass(kw_only=True)
+class HooksProviderMixin:
+
+    hooks: Dict[str, Hook] = field(default_factory=dict, init=False)    # hook_name => Hook
+
+    def __post_init__(self):
+        # used to refresh hooks
+        for attr_name in dir(self):
+            _ = getattr(self, attr_name)

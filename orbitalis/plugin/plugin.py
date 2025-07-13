@@ -16,13 +16,13 @@ from orbitalis.events.response import ResponseMessage
 from orbitalis.events.wellknown_topic import WellKnownTopic
 from orbitalis.orbiter.orbiter import Orbiter
 from orbitalis.orbiter.pending_request import PendingRequest
-from orbitalis.plugin.operation import Operation, HasOperationsMixin
+from orbitalis.plugin.operation import Operation, OperationsProviderMixin
 from orbitalis.plugin.state import PluginState
 from orbitalis.state_machine.state_machine import StateMachine
 
 
 @dataclass(kw_only=True)
-class Plugin(Orbiter, StateMachine, HasOperationsMixin, ABC):
+class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
     """
 
     TODO: a way to provide dynamic policies for operations
@@ -222,7 +222,7 @@ class Plugin(Orbiter, StateMachine, HasOperationsMixin, ABC):
 
                 self.remove_pending_request(core_identifier, operation_name)
 
-            for operation_name, input_topic, result_topic in lent_operations.items():
+            for operation_name in lent_operations.keys():
                 if operation_name not in self.pending_requests_by_remote_identifier(core_identifier):
                     logging.warning(f"{self}: operation without no pending request")
                     continue
