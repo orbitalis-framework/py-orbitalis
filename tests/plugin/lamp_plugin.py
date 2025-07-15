@@ -11,9 +11,15 @@ from orbitalis.plugin.operation import operation, Policy
 from orbitalis.plugin.plugin import Plugin
 
 
-@dataclass(frozen=True)
+@dataclass
 class StatusMessage(AvroEventPayload):
+    plugin_identifier: str
     status: str
+    created_at: datetime = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now()
 
 
 class LampStatus(StrEnum):
@@ -24,7 +30,7 @@ class LampStatus(StrEnum):
 @dataclass
 class LampPlugin(Plugin, ABC):
     kwh: float
-    status: LampStatus = field(default_factory=lambda: LampStatus.OFF)
+    status: LampStatus = field(default=LampStatus.OFF)
     on_at: Optional[datetime] = field(default=None)
     total_kwh: float = field(default=0.0)
 
@@ -53,8 +59,7 @@ class LampPlugin(Plugin, ABC):
     @operation(
         name="get_status",
         input=SchemaSpec.empty(),
-        output=SchemaSpec.from_payload(StatusMessage),
-        policy=Policy()
+        output=SchemaSpec.from_payload(StatusMessage)
     )
     async def get_status_event_handler(self, topic: str, event: Event):
         connections = self.retrieve_connections(input_topic=topic, operation_name="get_status")
@@ -63,7 +68,13 @@ class LampPlugin(Plugin, ABC):
 
         connection = connections[0]
 
-        # TODO: sent result
+        assert connection.output_topic is not None
+        assert connection.has_output
+
+        await self.eventbus_client.publish(
+            connection.output_topic,
+            StatusMessage(self.identifier, str(self.status)).into_event()
+        )
 
 
     @abstractmethod

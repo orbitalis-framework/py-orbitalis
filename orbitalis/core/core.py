@@ -11,7 +11,7 @@ from busline.client.subscriber.topic_subscriber.event_handler import schemafull_
 from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
-from orbitalis.core.hook import Hook, HooksProviderMixin
+from orbitalis.core.sink import SinksProviderMixin
 from orbitalis.core.state import CoreState
 from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
@@ -26,7 +26,7 @@ from orbitalis.state_machine.state_machine import StateMachine
 
 
 @dataclass(kw_only=True)
-class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
+class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
     discovering_interval: float = field(default=2)
     needed_operations: Dict[str, Need] = field(default_factory=dict)    # operation_name => Need
@@ -153,11 +153,13 @@ class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
         if not not_satisfied_need.is_compliance(plugin_identifier):
             return False
 
-        if not not_satisfied_need.input.is_compatible(offered_operation.input, undefined_is_compatible=self.undefined_is_compatible):
-            return False
+
+        if not_satisfied_need.has_input:
+            if not offered_operation.has_input or not not_satisfied_need.input.is_compatible(offered_operation.input, undefined_is_compatible=self.undefined_is_compatible):
+                return False
 
         if not_satisfied_need.has_output:
-            if not offered_operation.has_output or not_satisfied_need.output.is_compatible(offered_operation.output, undefined_is_compatible=self.undefined_is_compatible):
+            if not offered_operation.has_output or not not_satisfied_need.output.is_compatible(offered_operation.output, undefined_is_compatible=self.undefined_is_compatible):
                 return False
 
         return True
@@ -275,11 +277,20 @@ class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
 
             try:
 
-                # TODO
-                # await self.eventbus_client.subscribe(
-                #     self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic,
-                #     ...
-                # )
+                if self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output is not None:
+
+                    handler: Optional[EventHandler] = None
+                    if borrowed_operation_name in self.operation_sink:
+                        handler = self.operation_sink[borrowed_operation_name]
+
+                    if self.needed_operations[borrowed_operation_name].has_override_sink:
+                        handler = self.needed_operations[borrowed_operation_name].override_sink
+
+                    if handler is not None:
+                        await self.eventbus_client.subscribe(
+                            self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic,
+                            handler
+                        )
 
                 self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].input_topic = input_topic
                 self.promote_pending_request_to_connection(event.payload.plugin_identifier, borrowed_operation_name)
@@ -312,44 +323,63 @@ class Core(Orbiter, HooksProviderMixin, StateMachine[CoreState]):
         await self.eventbus_client.multi_unsubscribe(topics, parallelize=True)
 
 
+    def __check_compatibility_connection_payload(self, connection: Connection, payload: Optional[AvroEventPayload], undefined_is_compatible: bool) -> bool:
+        if not connection.has_input:
+            return False
+
+        if connection.has_input:
+            if payload is None:
+                if connection.input.support_empty_schema:
+                    return True
+                else:
+                    return False
+
+            if connection.input.is_compatible_with_schema(payload.avro_schema(), undefined_is_compatible=undefined_is_compatible):
+                return True
+
+        return False
+
     async def execute(self, operation_name: str, payload: Optional[AvroEventPayload] = None,
-        /, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None):
+        /, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None,
+            undefined_is_compatible: Optional[bool] = None):
         """
         Execute the operation by its name.
 
         You must specify which plugin must be used, otherwise ValueError is raised.
         """
 
+        if int(any) + int(all) + int(plugin_identifier is not None) > 1:
+            raise ValueError("You must chose only one between 'any', 'all' or 'plugin_identifier'")
+
+        if undefined_is_compatible is None:
+            undefined_is_compatible = self.undefined_is_compatible
+
         topics: Set[str] = set()
+
+        connections = self.retrieve_connections(operation_name=operation_name)
 
         if plugin_identifier is not None:
 
-            if plugin_identifier not in self.plugin_descriptors:
-                raise ValueError("plugin not plugged")
-
-            if operation_name not in self.plugin_descriptors[plugin_identifier].confirmed_operations:
-                raise ValueError(f"plugin has not operation {operation_name} (or it has not share it with this core {self.identifier})")
-
-            if payload is not None and self.plugin_descriptors[plugin_identifier].confirmed_operations[operation_name] != payload:
-                raise ValueError("incompatible input payload schema and plugin operation")
-
-            topics.add(self.operation_plugin_result_topic[operation_name][plugin_identifier])
-
-        elif all or any:
-            for plugin_identifier, topic in self.operation_plugin_result_topic[operation_name].items():
-                if payload is not None and self.plugin_descriptors[plugin_identifier].confirmed_operations[operation_name] != payload:
+            for connection in connections:
+                if connection.remote_identifier != plugin_identifier:
                     continue
 
-                topics.add(topic)
+                if self.__check_compatibility_connection_payload(connection, payload, undefined_is_compatible):
+                    topics.add(connection.input_topic)
+
+        elif all or any:
+            for connection in connections:
+                if self.__check_compatibility_connection_payload(connection, payload, undefined_is_compatible):
+                    topics.add(connection.input_topic)
 
             if any:
                 topics = { random.choice(list(topics)) }
 
         else:
-            raise ValueError("modality (any/all/identifier) must be specified")
+            raise ValueError("mode (any/all/identifier) must be specified")
 
 
-        await self.eventbus_client.multi_publish(list(topics), payload.into_event() if payload is not None else None)
+        await self.eventbus_client.multi_publish(list(topics), payload.into_event() if payload is not None else Event())
 
 
     async def sudo_execute(self, topic: str, payload: Optional[AvroEventPayload] = None):

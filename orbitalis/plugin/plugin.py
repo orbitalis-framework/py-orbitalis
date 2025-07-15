@@ -89,9 +89,13 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
                 return False
 
         # check input_schemas compatibility
-        if not self.operations[core_needed_operation_name].input.is_compatible(
-                core_needed_operation_constraint.input):
-            return False
+        if core_needed_operation_constraint.has_input:
+            if not self.operations[core_needed_operation_name].has_input:
+                return False
+
+            if not self.operations[core_needed_operation_name].input.is_compatible(
+                    core_needed_operation_constraint.input):
+                return False
 
         # check output_schemas compatibility
         if core_needed_operation_constraint.has_output:

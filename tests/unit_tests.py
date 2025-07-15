@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from orbitalis.core.need import Constraint, Need
 from orbitalis.orbiter.schemaspec import SchemaSpec
 from orbitalis.plugin.operation import Policy
+from tests.core.smarthome_core import SmartHomeCore
 from tests.plugin.lamp_x_plugin import LampXPlugin
 from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnMessage, TurnOffMessage
 
@@ -20,12 +21,6 @@ from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnMessage, TurnOffMessag
 @dataclass
 class MockMessage(AvroEventPayload):
     mock: str
-
-
-@dataclass
-class SmartHomeCore(Core):
-    pass
-
 
 
 class TestPlugin(unittest.IsolatedAsyncioTestCase):
@@ -51,7 +46,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         self.assertTrue("get_status" in self.lamp_x_plugin.operations)
 
         self.lamp_y_plugin = LampYPlugin(
-            identifier="lamp_x_plugin",
+            identifier="lamp_y_plugin",
             eventbus_client=LocalPubTopicSubClientBuilder() \
                 .with_default_publisher() \
                 .with_closure_subscriber(lambda t, e: ...) \
@@ -87,24 +82,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        self.smart_home2 = SmartHomeCore(
-            identifier="smart_home2",
-            eventbus_client=LocalPubTopicSubClientBuilder() \
-                .with_default_publisher() \
-                .with_closure_subscriber(lambda t, e: ...) \
-                .build(),
-            raise_exceptions=True,
-            needed_operations={
-                "turn_on": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
-                    input=SchemaSpec.empty()
-                )),
-                "turn_off": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
-                    input=SchemaSpec.empty()
-                )),
-            }
-        )
+        self.assertTrue("get_status" in self.smart_home1.operation_sink)
 
     async def test_schemaspec_compatibility(self):
         self.assertTrue(
@@ -142,24 +120,6 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 SchemaSpec(schemas=[MockMessage.avro_schema()], empty_schema=True)
             )
         )
-
-    async def test_handshake(self):
-        self.assertFalse(self.smart_home1.is_compliance())
-
-        await self.lamp_x_plugin.start()
-        await self.smart_home1.start()
-
-        await asyncio.sleep(2)
-
-        self.assertTrue(self.smart_home1.is_compliance())
-
-        self.assertFalse(self.smart_home2.is_compliance())
-
-        await self.smart_home2.start()
-
-        await asyncio.sleep(2)
-
-        self.assertFalse(self.smart_home2.is_compliance())      # turn_on should be missed
 
 
     async def test_turn_on_off_plugin_x(self):

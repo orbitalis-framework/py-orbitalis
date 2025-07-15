@@ -2,11 +2,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, List
 
-from orbitalis.orbiter.schemaspec import SchemaSpec
+from orbitalis.orbiter.schemaspec import SchemaSpec, InputOutputSchemaSpec
 
 
 @dataclass
-class Connection:
+class Connection(InputOutputSchemaSpec):
     """
     Orbiter2 uses this connection to execute related operation on Orbiter1.
 
@@ -26,7 +26,6 @@ class Connection:
     remote_identifier: str
 
     input_topic: str
-    input: SchemaSpec
 
     # close_connection_to_local_topic: str
     # close_connection_to_remote_topic: str
@@ -34,13 +33,15 @@ class Connection:
     # keepalive_to_remote_topic: str
 
     output_topic: Optional[str] = field(default=None)
-    output: Optional[SchemaSpec] = field(default=None)
 
     created_at: datetime = field(default_factory=lambda: datetime.now())
     last_use: Optional[datetime] = field(default=None)
 
     def __post_init__(self):
-        if self.output_topic is not None and self.output is None:
+        if self.input_topic is not None and not self.has_input:
+            raise ValueError("output is missed")
+
+        if self.output_topic is not None and not self.has_output:
             raise ValueError("output is missed")
 
     def touch(self):

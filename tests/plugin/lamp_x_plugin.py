@@ -11,16 +11,14 @@ class LampXPlugin(LampPlugin):
 
     @operation(
         name="turn_on",
-        input=SchemaSpec.empty(),
-        policy=Policy()
+        input=SchemaSpec.empty()
     )
     async def turn_on_event_handler(self, topic: str, event: Event):
         self.turn_on()
 
     @operation(
         name="turn_off",
-        input=SchemaSpec.empty(),
-        policy=Policy()
+        input=SchemaSpec.empty()
     )
     async def turn_off_event_handler(self, topic: str, event: Event):
         self.turn_off()

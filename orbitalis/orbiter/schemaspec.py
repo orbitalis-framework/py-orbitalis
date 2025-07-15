@@ -16,6 +16,10 @@ class SchemaSpec:
     empty_schema: bool = field(default=False)
 
     @property
+    def support_empty_schema(self) -> bool:
+        return self.empty_schema
+
+    @property
     def has_some_explicit_schemas(self) -> bool:
         return len(self.schemas) > 0
 
@@ -80,6 +84,16 @@ class SchemaSpec:
 
         return True
 
+    def is_compatible_with_schema(self, target_schema: str, undefined_is_compatible: bool = False) -> bool:
+        if undefined_is_compatible and self.is_undefined:
+            return True
+
+        for my_schema in self.schemas:
+            if self.compare_two_schema(my_schema, target_schema):
+                return True
+
+        return False
+
 
     @classmethod
     def compare_two_schema(cls, schema_a: str, schema_b: str):
@@ -98,9 +112,12 @@ class SchemaSpec:
 
 @dataclass(kw_only=True)
 class InputOutputSchemaSpec:
-    input: SchemaSpec
+    input: Optional[SchemaSpec]
     output: Optional[SchemaSpec] = field(default=None)
 
+    @property
+    def has_input(self) -> bool:
+        return self.input is not None
 
     @property
     def has_output(self) -> bool:
