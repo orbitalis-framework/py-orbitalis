@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass, field
-from typing import Optional, List, Type, Self
+from typing import Optional, List, Type, Self, override
 from abc import abstractmethod
 from busline.event.avro_payload import AvroEventPayload
 
@@ -41,7 +41,7 @@ class SchemaSpec:
         return cls.from_schema(payload.avro_schema())
 
 
-    def is_compatible(self, other: Self, *, undefined_is_compatible: bool = False, strict: bool = False) -> bool:
+    def is_compatible(self, other: Self, *, undefined_is_compatible: bool = False) -> bool:
         if self.support_undefined_schema and other.support_undefined_schema:
             return True
 
@@ -52,32 +52,24 @@ class SchemaSpec:
             if self.support_undefined_schema or other.support_undefined_schema:
                 return True
 
-        if (self.support_empty_schema and not other.empty_schema) or (not self.support_empty_schema and other.empty_schema):
+        if (self.support_empty_schema and not other.support_empty_schema) or (not self.support_empty_schema and other.support_undefined_schema):
             return False
 
         if (self.has_some_explicit_schemas and not other.has_some_explicit_schemas) or (not self.has_some_explicit_schemas and other.has_some_explicit_schemas):
+            return False
+
+        if len(self.schemas) != len(other.schemas):
             return False
 
         for my_schema in self.schemas:
             found = False
 
             for other_schema in other.schemas:
-                if self.compare_two_schema(my_schema, other_schema):
+                if self._compare_two_schema(my_schema, other_schema):
                     found = True
 
             if not found:
                 return False
-
-        if strict:
-            for other_schema in other.schemas:
-                found = False
-
-                for my_schema in self.schemas:
-                    if self.compare_two_schema(other_schema, my_schema):
-                        found = True
-
-                if not found:
-                    return False
 
         return True
 
@@ -86,14 +78,14 @@ class SchemaSpec:
             return True
 
         for my_schema in self.schemas:
-            if self.compare_two_schema(my_schema, target_schema):
+            if self._compare_two_schema(my_schema, target_schema):
                 return True
 
         return False
 
 
     @classmethod
-    def compare_two_schema(cls, schema_a: str, schema_b: str):
+    def _compare_two_schema(cls, schema_a: str, schema_b: str):
         """
         Compare two schemas and return True if they are equal
         """
@@ -112,33 +104,72 @@ class Input(SchemaSpec):
 
     @property
     def has_input(self) -> Self:
-        return not self.support_undefined_schema and not self.support_undefined_schema and not self.has_some_explicit_schemas
+        return self.support_undefined_schema or self.support_empty_schema or self.has_some_explicit_schemas
 
     @classmethod
     def no_input(cls) -> Self:
         return cls()
 
-@dataclass
+    @override
+    def is_compatible(self, other: Self, *, undefined_is_compatible: bool = False) -> bool:
+        if int(other.has_input) + int(self.has_input) == 1:
+            return False
+
+        return super().is_compatible(other, undefined_is_compatible=undefined_is_compatible)
+
+@dataclass(kw_only=True)
 class Output(SchemaSpec):
 
     @property
     def has_output(self) -> Self:
-        return not self.support_undefined_schema and not self.support_undefined_schema and not self.has_some_explicit_schemas
+        return self.support_undefined_schema or self.support_empty_schema or self.has_some_explicit_schemas
 
     @classmethod
     def no_output(cls) -> Self:
         return cls()
 
+    @override
+    def is_compatible(self, other: Self, *, undefined_is_compatible: bool = False) -> bool:
+        if int(other.has_output) + int(self.has_output) == 1:
+            return False
 
-# @dataclass(kw_only=True)
-# class InputOutputSchemaSpec:
-#     input: Optional[SchemaSpec]
-#     output: Optional[SchemaSpec] = field(default=None)
-#
-#     @property
-#     def has_input(self) -> bool:
-#         return self.input is not None
-#
-#     @property
-#     def has_output(self) -> bool:
-#         return self.output is not None
+        return super().is_compatible(other, undefined_is_compatible=undefined_is_compatible)
+
+
+@dataclass
+class InputOutput:
+    input: Input
+    output: Output
+
+@dataclass(kw_only=True)
+class Inputs:
+    inputs: List[Input]
+
+    def input_is_compatible(self, input: Input, *, undefined_is_compatible: bool = False) -> bool:
+        found = False
+        for my_input in self.inputs:
+
+            if my_input.is_compatible(input, undefined_is_compatible=undefined_is_compatible):
+                found = True
+                continue
+
+        return found
+
+
+@dataclass(kw_only=True)
+class Outputs:
+    outputs: List[Output]
+
+    def output_is_compatible(self, output: Output, *, undefined_is_compatible: bool = False) -> bool:
+        found = False
+        for my_output in self.outputs:
+
+            if my_output.is_compatible(output, undefined_is_compatible=undefined_is_compatible):
+                found = True
+                continue
+
+        return found
+
+@dataclass(kw_only=True)
+class InputsOutputs(Inputs, Outputs):
+    pass

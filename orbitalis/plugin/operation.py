@@ -8,7 +8,7 @@ from typing import Optional, Dict, Awaitable, Callable, List, Type, Self, Any
 from busline.client.subscriber.topic_subscriber.event_handler import event_handler
 from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
 from busline.event.event import Event
-from orbitalis.orbiter.schemaspec import SchemaSpec, InputOutputSchemaSpec
+from orbitalis.orbiter.schemaspec import SchemaSpec, InputsOutputs, Input, Output, InputOutput
 from orbitalis.utils.allowblocklist import AllowBlockListMixin
 
 
@@ -22,19 +22,17 @@ class Policy(AllowBlockListMixin):
 
 
 @dataclass(kw_only=True)
-class Operation(InputOutputSchemaSpec):
+class Operation(InputOutput):
     name: str
     handler: EventHandler
     policy: Policy
 
 
 @dataclass(kw_only=True)
-class _OperationDescriptor:
+class _OperationDescriptor(InputOutput):
     operation_name: str
     func: Any
     policy: Policy
-    input: SchemaSpec
-    output: Optional[SchemaSpec]
 
     def __post_init__(self):
         self.func = event_handler(self.func)
@@ -55,7 +53,13 @@ class _OperationDescriptor:
         return self.func.__get__(instance, owner)
 
 
-def operation(*, input: SchemaSpec, policy: Optional[Policy] = None, output: Optional[SchemaSpec] = None, name: Optional[str] = None):
+def operation(*, input: Optional[Input] = None, policy: Optional[Policy] = None, output: Optional[Output] = None, name: Optional[str] = None):
+
+    if input is None:
+        input = Input.no_input()
+
+    if output is None:
+        output = Output.no_output()
 
     if policy is None:
         policy = Policy.no_constraints()

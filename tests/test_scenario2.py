@@ -11,11 +11,11 @@ from orbitalis.core.core import Core
 from dataclasses import dataclass, field
 
 from orbitalis.core.need import Constraint, Need
-from orbitalis.orbiter.schemaspec import SchemaSpec, Input
+from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
 from tests.plugin.lamp_x_plugin import LampXPlugin
-from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnMessage, TurnOffMessage
+from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnLampYMessage, TurnOffLampYMessage
 
 
 class TestPlugin(unittest.IsolatedAsyncioTestCase):
@@ -53,11 +53,13 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             needed_operations={
                 "turn_on": Need(Constraint(
                     mandatory=["lamp_x_plugin"],
-                    inputs=[Input.empty()]
+                    inputs=[Input.empty()],
+                    outputs=[Output.no_output()]
                 )),
                 "turn_off": Need(Constraint(
                     mandatory=["lamp_x_plugin"],
-                    inputs=[Input.empty()]
+                    inputs=[Input.empty()],
+                    outputs=[Output.no_output()]
                 )),
             }
         )
@@ -72,11 +74,13 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             needed_operations={
                 "turn_on": Need(Constraint(
                     mandatory=["lamp_x_plugin"],
-                    inputs=[Input.empty()]
+                    inputs=[Input.empty()],
+                    outputs=[Output.no_output()]
                 )),
                 "turn_off": Need(Constraint(
                     mandatory=["lamp_x_plugin"],
-                    inputs=[Input.empty()]
+                    inputs=[Input.empty()],
+                    outputs=[Output.no_output()]
                 )),
             }
         )

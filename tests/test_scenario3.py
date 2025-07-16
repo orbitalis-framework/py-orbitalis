@@ -11,11 +11,11 @@ from orbitalis.core.core import Core
 from dataclasses import dataclass, field
 
 from orbitalis.core.need import Constraint, Need
-from orbitalis.orbiter.schemaspec import SchemaSpec, Input
+from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
 from tests.plugin.lamp_x_plugin import LampXPlugin
-from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnMessage, TurnOffMessage
+from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnLampYMessage, TurnOffLampYMessage
 
 
 class TestPlugin(unittest.IsolatedAsyncioTestCase):
@@ -63,8 +63,18 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 .build(),
             raise_exceptions=True,
             needed_operations={
-                "turn_on": Need(Constraint().with_input(Input.from_schema(TurnOnMessage.avro_schema()).with_empty_support())),
-                "turn_off": Need(Constraint().with_input(Input.from_schema(TurnOnMessage.avro_schema()).with_empty_support())),
+                "turn_on": Need(
+                    Constraint(
+                        inputs=[Input.empty(), Input.from_schema(TurnOnLampYMessage.avro_schema()).with_empty_support()],
+                        outputs=[Output.no_output()]
+                    )
+                ),
+                "turn_off": Need(
+                    Constraint(
+                        inputs=[Input.empty(), Input.from_schema(TurnOffLampYMessage.avro_schema()).with_empty_support()],
+                        outputs=[Output.no_output()]
+                    )
+                ),
             }
         )
 
@@ -91,7 +101,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(2)
 
         self.assertTrue(self.lamp_x_plugin.is_on, "'lamp_x_plugin' is off, but it should be turned on")
-        self.assertFalse(self.lamp_y_plugin.is_off, "'lamp_y_plugin' is on, but payload was incompatible")     # because no payload was used during execute, which is compatible
+        self.assertTrue(self.lamp_y_plugin.is_off, "'lamp_y_plugin' is on, but payload was incompatible")     # because no payload was used during execute, which is compatible
 
 
 

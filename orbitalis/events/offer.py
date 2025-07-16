@@ -5,11 +5,11 @@ from dataclasses_avroschema import AvroModel
 
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
-from orbitalis.orbiter.schemaspec import InputOutputSchemaSpec
+from orbitalis.orbiter.schemaspec import InputOutput
 
 
 @dataclass
-class OfferedOperation(InputOutputSchemaSpec, AvroModel):
+class OfferedOperation(InputOutput, AvroModel):
     operation_name: str
 
 @dataclass(frozen=True)

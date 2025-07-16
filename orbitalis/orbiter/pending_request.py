@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from orbitalis.orbiter.connection import Connection
-from orbitalis.orbiter.schemaspec import SchemaSpec
+from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output
 
 
 @dataclass
@@ -15,8 +15,8 @@ class PendingRequest:
     reply_topic: Optional[str] = field(default=None, kw_only=True)
     response_topic: Optional[str] = field(default=None, kw_only=True)
 
-    input: Optional[SchemaSpec] = field(default=None)
-    output: Optional[SchemaSpec] = field(default=None)
+    input: Input = field(default=None)
+    output: Output = field(default=None)
 
     input_topic: Optional[str] = field(default=None, kw_only=True)
     close_connection_to_local_topic: Optional[str] = field(default=None, kw_only=True)

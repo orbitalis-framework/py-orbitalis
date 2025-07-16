@@ -15,7 +15,7 @@ from orbitalis.orbiter.schemaspec import SchemaSpec
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
 from tests.plugin.lamp_x_plugin import LampXPlugin
-from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnMessage, TurnOffMessage
+from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnLampYMessage, TurnOffLampYMessage
 
 
 @dataclass
@@ -160,7 +160,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await self.smart_home1.sudo_execute(
             "turn_on_topic",
-            TurnOnMessage(power=0.5)    # .into_event() is called within the method
+            TurnOnLampYMessage(power=0.5)    # .into_event() is called within the method
         )
 
         await asyncio.sleep(1)
@@ -169,7 +169,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await self.smart_home1.eventbus_client.publish(
             "turn_off_topic",
-            TurnOffMessage(reset_consumption=True).into_event()
+            TurnOffLampYMessage(reset_consumption=True).into_event()
         )
 
         await asyncio.sleep(1)

@@ -16,7 +16,7 @@ from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
 from tests.plugin.lamp_plugin import StatusMessage
 from tests.plugin.lamp_x_plugin import LampXPlugin
-from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnMessage, TurnOffMessage
+from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnLampYMessage, TurnOffLampYMessage
 
 
 class TestPlugin(unittest.IsolatedAsyncioTestCase):
@@ -38,7 +38,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             kwh=24      # LampPlugin-specific attribute
         ).with_custom_policy(
             operation_name="turn_on",
-            policy=Policy.no_constraints()
+            policy=Policy(allowlist=["smart_home1"])
         )
 
         self.assertTrue("turn_on" in self.lamp_x_plugin.operations)
@@ -54,18 +54,22 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             raise_exceptions=True,
             needed_operations={
                 "turn_on": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
-                    inputs=[Input.empty()]
+                    mandatory=[self.lamp_x_plugin.identifier],
+                    inputs=[Input.empty()],
+                    outputs=[Output.no_output()]
                 )),
                 "turn_off": Need(
                     Constraint(
-                        mandatory=["lamp_x_plugin"]
-                    ).with_input(Input.empty())
+                        mandatory=[self.lamp_x_plugin.identifier],
+                        inputs=[Input.empty()],
+                        outputs=[Output.no_output()]
+                    )
                 ),
                 "get_status": Need(
                     Constraint(
-                        inputs=[Input.empty()]
-                    ).with_output(Output.from_schema(StatusMessage.avro_schema()))
+                        inputs=[Input.empty()],
+                        outputs=[Output.from_schema(StatusMessage.avro_schema())]
+                    )
                 )
             }
         )
@@ -79,12 +83,14 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             raise_exceptions=True,
             needed_operations={
                 "turn_on": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
-                    inputs=[Input.empty()]
+                    mandatory=[self.lamp_x_plugin.identifier],
+                    inputs=[Input.empty()],
+                    outputs=[Output.no_output()]
                 )),
                 "turn_off": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
-                    inputs=[Input.empty()]
+                    mandatory=[self.lamp_x_plugin.identifier],
+                    inputs=[Input.empty()],
+                    outputs=[Output.no_output()]
                 )),
             }
         )
@@ -106,7 +112,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(2)
 
-        self.assertTrue(self.smart_home2.is_compliance())
+        self.assertFalse(self.smart_home2.is_compliance())
 
 
     async def test_get_status(self):

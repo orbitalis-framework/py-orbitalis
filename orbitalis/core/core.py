@@ -154,14 +154,11 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
         if not not_satisfied_need.is_compliance(plugin_identifier):
             return False
 
+        if not not_satisfied_need.input_is_compatible(offered_operation.input):
+            return False
 
-        if not_satisfied_need.has_input:
-            if not offered_operation.has_input or not not_satisfied_need.input.is_compatible(offered_operation.input, undefined_is_compatible=self.undefined_is_compatible):
-                return False
-
-        if not_satisfied_need.has_output:
-            if not offered_operation.has_output or not not_satisfied_need.output.is_compatible(offered_operation.output, undefined_is_compatible=self.undefined_is_compatible):
-                return False
+        if not not_satisfied_need.output_is_compatible(offered_operation.output):
+            return False
 
         return True
 
@@ -200,17 +197,11 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
             requested_operations: Dict[str, RequestedOperation] = {}
             for offered_operation in operations_to_request:
 
-                output_topic = None
-                output = None
-                if self.needed_operations[offered_operation.operation_name].constraint.has_output:
-                    if not offered_operation.has_output:
-                        continue    # invalid offer
+                if not self.needed_operations[offered_operation.operation_name].constraint.output_is_compatible(offered_operation.output):
+                    continue    # invalid offer
 
-                    if not self.needed_operations[offered_operation.operation_name].constraint.output.is_compatible(offered_operation.output):
-                        continue    # invalid offer
-
-                    output = offered_operation.output
-                    output_topic = self.build_operation_output_topic(event.payload.plugin_identifier, offered_operation.operation_name)
+                output = offered_operation.output
+                output_topic = self.build_operation_output_topic(event.payload.plugin_identifier, offered_operation.operation_name)
 
 
                 self.add_pending_request(event.payload.plugin_identifier, offered_operation.operation_name, PendingRequest(
@@ -218,10 +209,10 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                     remote_identifier=event.payload.plugin_identifier,
                     output_topic=output_topic,
                     output=output,
+                    input=offered_operation.input,
                     offer_topic=topic,
                     response_topic=response_topic,
                     reply_topic=event.payload.reply_topic,
-                    input=offered_operation.input
                 ))
 
                 requested_operations[offered_operation.operation_name] = RequestedOperation(
@@ -278,6 +269,8 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
             try:
 
+                self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].input_topic = input_topic
+
                 if self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output is not None:
 
                     handler: Optional[EventHandler] = None
@@ -327,18 +320,17 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
 
     def __check_compatibility_connection_payload(self, connection: Connection, payload: Optional[AvroEventPayload], undefined_is_compatible: bool) -> bool:
-        if not connection.has_input:
+        if not connection.input.has_input:
             return False
 
-        if connection.has_input:
-            if payload is None:
-                if connection.input.support_empty_schema:
-                    return True
-                else:
-                    return False
-
-            if connection.input.is_compatible_with_schema(payload.avro_schema(), undefined_is_compatible=undefined_is_compatible):
+        if payload is None:
+            if connection.input.support_empty_schema:
                 return True
+            else:
+                return False
+
+        if connection.input.is_compatible_with_schema(payload.avro_schema(), undefined_is_compatible=undefined_is_compatible):
+            return True
 
         return False
 

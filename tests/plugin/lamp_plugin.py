@@ -6,7 +6,7 @@ from typing import Optional
 
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
-from orbitalis.orbiter.schemaspec import SchemaSpec
+from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output
 from orbitalis.plugin.operation import operation, Policy
 from orbitalis.plugin.plugin import Plugin
 
@@ -58,8 +58,8 @@ class LampPlugin(Plugin, ABC):
 
     @operation(
         name="get_status",
-        input=SchemaSpec.empty(),
-        output=SchemaSpec.from_payload(StatusMessage)
+        input=Input.empty(),
+        output=Output.from_payload(StatusMessage)
     )
     async def get_status_event_handler(self, topic: str, event: Event):
         connections = self.retrieve_connections(input_topic=topic, operation_name="get_status")
@@ -69,7 +69,7 @@ class LampPlugin(Plugin, ABC):
         connection = connections[0]
 
         assert connection.output_topic is not None
-        assert connection.has_output
+        assert connection.output.has_output
 
         await self.eventbus_client.publish(
             connection.output_topic,

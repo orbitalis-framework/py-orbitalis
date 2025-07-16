@@ -88,20 +88,12 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
                 return False
 
         # check input_schemas compatibility
-        if core_needed_operation_constraint.has_input:
-            if not self.operations[core_needed_operation_name].has_input:
-                return False
-
-            if not self.operations[core_needed_operation_name].input.is_compatible(core_needed_operation_constraint.input):
-                return False
+        if not core_needed_operation_constraint.input_is_compatible(self.operations[core_needed_operation_name].input):
+            return False
 
         # check output_schemas compatibility
-        if core_needed_operation_constraint.has_output:
-            if not self.operations[core_needed_operation_name].has_output:
-                return False
-
-            if not core_needed_operation_constraint.output.is_compatible(self.operations[core_needed_operation_name].output):
-                return False
+        if not core_needed_operation_constraint.output_is_compatible(self.operations[core_needed_operation_name].output):
+            return False
 
         if not self.can_lend_to_core(core_identifier, core_needed_operation_name):
             return False
