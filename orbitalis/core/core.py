@@ -81,9 +81,6 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
         return True
 
     def is_compliance(self) -> bool:
-        """
-        Return True if the plugged plugins are enough to perform all services
-        """
 
         for operation_name in self.needed_operations.keys():
             if not self.is_compliance_for_operation(operation_name):
@@ -92,13 +89,14 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
         return True
 
     def update_compliance(self):
+        # TODO: evitare di chiamare sempre is_compliance e gli hook
 
         if self.is_compliance():
             self.state = CoreState.COMPLIANT
-            self._on_compliance()
+            # TODO: self._on_compliance()
         else:
             self.state = CoreState.NOT_COMPLIANT
-            self._on_not_compliance()
+            # TODO: self._on_not_compliance()
 
 
     def build_offer_topic(self) -> str:
@@ -110,11 +108,8 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
             or (need.mandatory is not None and len(need.mandatory) > 0) \
             or (need.maximum is None or need.maximum > 0)
 
-    async def send_discover(self):
-
-        offer_topic = self.build_offer_topic()
-
-        needed_operations = {}
+    def operation_to_discover(self) -> Dict[str, Constraint]:
+        needed_operations: Dict[str, Constraint] = {}
         for operation_name in self.needed_operations.keys():
             not_satisfied_need = self.constraint_for_operation(operation_name)
 
@@ -125,6 +120,12 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                 continue
 
             needed_operations[operation_name] = not_satisfied_need
+
+        return needed_operations
+
+    async def send_discover(self, needed_operations: Dict[str, Constraint]):
+
+        offer_topic = self.build_offer_topic()
 
         if len(needed_operations) == 0:
             return
@@ -309,8 +310,10 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
         self.update_compliance()
 
-        if self.state == CoreState.NOT_COMPLIANT:
-            await self.send_discover()
+        needed_operations: Dict[str, Constraint] = self.operation_to_discover()
+
+        if len(needed_operations) > 0:
+            await self.send_discover(needed_operations)
 
     @override
     async def _internal_stop(self, *args, **kwargs):

@@ -67,8 +67,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
 
         # check if already in pending request
         if core_identifier in self.pending_requests.keys() \
-                and core_needed_operation_name in self.pending_requests_by_remote_identifier(
-            core_identifier):
+                and core_needed_operation_name in self.pending_requests_by_remote_identifier(core_identifier):
             return False
 
         # check if this plugin have already lent operation to core
@@ -93,8 +92,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
             if not self.operations[core_needed_operation_name].has_input:
                 return False
 
-            if not self.operations[core_needed_operation_name].input.is_compatible(
-                    core_needed_operation_constraint.input):
+            if not self.operations[core_needed_operation_name].input.is_compatible(core_needed_operation_constraint.input):
                 return False
 
         # check output_schemas compatibility
@@ -102,8 +100,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
             if not self.operations[core_needed_operation_name].has_output:
                 return False
 
-            if not core_needed_operation_constraint.output.is_compatible(
-                    self.operations[core_needed_operation_name].output):
+            if not core_needed_operation_constraint.output.is_compatible(self.operations[core_needed_operation_name].output):
                 return False
 
         if not self.can_lend_to_core(core_identifier, core_needed_operation_name):

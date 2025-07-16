@@ -13,19 +13,16 @@ class SchemaSpec:
     """
 
     schemas: List[str] = field(default_factory=list)
-    empty_schema: bool = field(default=False)
+    support_empty_schema: bool = field(default=False)
+    support_undefined_schema: bool = field(default=False)
 
-    @property
-    def support_empty_schema(self) -> bool:
-        return self.empty_schema
+    def with_empty_support(self) -> Self:
+        self.support_empty_schema = True
+        return self
 
     @property
     def has_some_explicit_schemas(self) -> bool:
         return len(self.schemas) > 0
-
-    @property
-    def is_undefined(self) -> bool:
-        return not self.has_some_explicit_schemas and not self.empty_schema
 
     @classmethod
     def from_schema(cls, schema: str) -> Self:
@@ -33,11 +30,11 @@ class SchemaSpec:
 
     @classmethod
     def empty(cls) -> Self:
-        return cls(empty_schema=True)
+        return cls(support_empty_schema=True)
 
     @classmethod
     def undefined(cls) -> Self:
-        return cls(schemas=[], empty_schema=False)
+        return cls(schemas=[], support_empty_schema=False)
 
     @classmethod
     def from_payload(cls, payload: Type[AvroEventPayload]) -> Self:
@@ -45,17 +42,17 @@ class SchemaSpec:
 
 
     def is_compatible(self, other: Self, *, undefined_is_compatible: bool = False, strict: bool = False) -> bool:
-        if self.is_undefined and other.is_undefined:
+        if self.support_undefined_schema and other.support_undefined_schema:
             return True
 
         if not undefined_is_compatible:
-            if (not self.is_undefined and other.is_undefined) or (self.is_undefined and not other.is_undefined):
+            if (not self.support_undefined_schema and other.support_undefined_schema) or (self.support_undefined_schema and not other.support_undefined_schema):
                 return False
         else:
-            if self.is_undefined or other.is_undefined:
+            if self.support_undefined_schema or other.support_undefined_schema:
                 return True
 
-        if (self.empty_schema and not other.empty_schema) or (not self.empty_schema and other.empty_schema):
+        if (self.support_empty_schema and not other.empty_schema) or (not self.support_empty_schema and other.empty_schema):
             return False
 
         if (self.has_some_explicit_schemas and not other.has_some_explicit_schemas) or (not self.has_some_explicit_schemas and other.has_some_explicit_schemas):
@@ -85,7 +82,7 @@ class SchemaSpec:
         return True
 
     def is_compatible_with_schema(self, target_schema: str, undefined_is_compatible: bool = False) -> bool:
-        if undefined_is_compatible and self.is_undefined:
+        if undefined_is_compatible and self.support_undefined_schema:
             return True
 
         for my_schema in self.schemas:
@@ -110,15 +107,38 @@ class SchemaSpec:
             return schema_a == schema_b
 
 
-@dataclass(kw_only=True)
-class InputOutputSchemaSpec:
-    input: Optional[SchemaSpec]
-    output: Optional[SchemaSpec] = field(default=None)
+@dataclass
+class Input(SchemaSpec):
 
     @property
-    def has_input(self) -> bool:
-        return self.input is not None
+    def has_input(self) -> Self:
+        return not self.support_undefined_schema and not self.support_undefined_schema and not self.has_some_explicit_schemas
+
+    @classmethod
+    def no_input(cls) -> Self:
+        return cls()
+
+@dataclass
+class Output(SchemaSpec):
 
     @property
-    def has_output(self) -> bool:
-        return self.output is not None
+    def has_output(self) -> Self:
+        return not self.support_undefined_schema and not self.support_undefined_schema and not self.has_some_explicit_schemas
+
+    @classmethod
+    def no_output(cls) -> Self:
+        return cls()
+
+
+# @dataclass(kw_only=True)
+# class InputOutputSchemaSpec:
+#     input: Optional[SchemaSpec]
+#     output: Optional[SchemaSpec] = field(default=None)
+#
+#     @property
+#     def has_input(self) -> bool:
+#         return self.input is not None
+#
+#     @property
+#     def has_output(self) -> bool:
+#         return self.output is not None

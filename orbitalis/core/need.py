@@ -4,12 +4,12 @@ from typing import Optional, Set, Dict, List, Any, TypeVar, Generic, Self
 from dataclasses_avroschema import AvroModel
 
 from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
-from orbitalis.orbiter.schemaspec import SchemaSpec, InputOutputSchemaSpec
+from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output
 from orbitalis.utils.allowblocklist import AllowBlockListMixin
 
 
 @dataclass(kw_only=True)
-class Constraint(AllowBlockListMixin, InputOutputSchemaSpec):
+class Constraint(AllowBlockListMixin):
     """
     min: minimum number (mandatory excluded)
     max: maximum number (mandatory excluded)
@@ -19,7 +19,17 @@ class Constraint(AllowBlockListMixin, InputOutputSchemaSpec):
     minimum: int = field(default=0)
     maximum: Optional[int] = field(default=None)
     mandatory: List[str] = field(default_factory=list)
+    inputs: List[Input] = field(default_factory=list)
+    outputs: List[Output] = field(default_factory=list)
 
+
+    def with_input(self, input: Input) -> Self:
+        self.inputs.append(input)
+        return self
+
+    def with_output(self, output: Output) -> Self:
+        self.outputs.append(output)
+        return self
 
     def __post_init__(self):
         if self.minimum < 0 or (self.maximum is not None and self.maximum < 0) \

@@ -76,6 +76,8 @@ class LampPlugin(Plugin, ABC):
             StatusMessage(self.identifier, str(self.status)).into_event()
         )
 
+        connection.touch()
+
 
     @abstractmethod
     async def turn_on_event_handler(self, topic: str, event: Event):

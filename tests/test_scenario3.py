@@ -34,14 +34,26 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             raise_exceptions=True,
 
             kwh=24      # LampPlugin-specific attribute
-        ).with_custom_policy(
-            operation_name="turn_on",
-            policy=Policy(maximum=2)
         )
 
         self.assertTrue("turn_on" in self.lamp_x_plugin.operations)
         self.assertTrue("turn_off" in self.lamp_x_plugin.operations)
         self.assertTrue("get_status" in self.lamp_x_plugin.operations)
+
+        self.lamp_y_plugin = LampYPlugin(
+            identifier="lamp_y_plugin",
+            eventbus_client=LocalPubTopicSubClientBuilder() \
+                .with_default_publisher() \
+                .with_closure_subscriber(lambda t, e: ...) \
+                .build(),
+            raise_exceptions=True,
+
+            kwh=42
+        )
+
+        self.assertTrue("turn_on" in self.lamp_y_plugin.operations)
+        self.assertTrue("turn_off" in self.lamp_y_plugin.operations)
+        self.assertTrue("get_status" in self.lamp_y_plugin.operations)
 
         self.smart_home1 = SmartHomeCore(
             identifier="smart_home1",
@@ -51,54 +63,35 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 .build(),
             raise_exceptions=True,
             needed_operations={
-                "turn_on": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
-                    inputs=[Input.empty()]
-                )),
-                "turn_off": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
-                    inputs=[Input.empty()]
-                )),
-            }
-        )
-
-        self.smart_home2 = SmartHomeCore(
-            identifier="smart_home2",
-            eventbus_client=LocalPubTopicSubClientBuilder() \
-                .with_default_publisher() \
-                .with_closure_subscriber(lambda t, e: ...) \
-                .build(),
-            raise_exceptions=True,
-            needed_operations={
-                "turn_on": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
-                    inputs=[Input.empty()]
-                )),
-                "turn_off": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
-                    inputs=[Input.empty()]
-                )),
+                "turn_on": Need(Constraint().with_input(Input.from_schema(TurnOnMessage.avro_schema()).with_empty_support())),
+                "turn_off": Need(Constraint().with_input(Input.from_schema(TurnOnMessage.avro_schema()).with_empty_support())),
             }
         )
 
 
-    async def test_handshake(self):
-        self.assertFalse(self.smart_home1.is_compliance())
+    async def test_all_any_execute(self):
+        self.assertTrue(self.smart_home1.is_compliance())   # already compliance, but can plug plugins
 
         await self.lamp_x_plugin.start()
+        await self.lamp_y_plugin.start()
         await self.smart_home1.start()
 
         await asyncio.sleep(2)
 
-        self.assertTrue(self.smart_home1.is_compliance())
+        self.assertTrue(self.lamp_x_plugin.identifier in self.smart_home1.connections.keys())
+        self.assertTrue("turn_on" in self.smart_home1.connections[self.lamp_x_plugin.identifier].keys())
+        self.assertTrue("turn_off" in self.smart_home1.connections[self.lamp_x_plugin.identifier].keys())
+        self.assertTrue(self.smart_home1.is_compliance(), "Core 'smart_home1' not compliance")
 
-        self.assertFalse(self.smart_home2.is_compliance())
+        self.lamp_x_plugin.turn_off()
+        self.lamp_y_plugin.turn_off()
 
-        await self.smart_home2.start()
+        await self.smart_home1.execute("turn_on", all=True)
 
         await asyncio.sleep(2)
 
-        self.assertFalse(self.smart_home2.is_compliance())      # turn_on should be missed
+        self.assertTrue(self.lamp_x_plugin.is_on, "'lamp_x_plugin' is off, but it should be turned on")
+        self.assertFalse(self.lamp_y_plugin.is_off, "'lamp_y_plugin' is on, but payload was incompatible")     # because no payload was used during execute, which is compatible
 
 
 

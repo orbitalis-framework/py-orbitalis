@@ -11,7 +11,7 @@ from orbitalis.core.core import Core
 from dataclasses import dataclass, field
 
 from orbitalis.core.need import Constraint, Need
-from orbitalis.orbiter.schemaspec import SchemaSpec
+from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
 from tests.plugin.lamp_plugin import StatusMessage
@@ -55,16 +55,18 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             needed_operations={
                 "turn_on": Need(Constraint(
                     mandatory=["lamp_x_plugin"],
-                    input=SchemaSpec.empty()
+                    inputs=[Input.empty()]
                 )),
-                "turn_off": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
-                    input=SchemaSpec.empty()
-                )),
-                "get_status": Need(Constraint(
-                    input=SchemaSpec.empty(),
-                    output=SchemaSpec.from_schema(StatusMessage.avro_schema())
-                ))
+                "turn_off": Need(
+                    Constraint(
+                        mandatory=["lamp_x_plugin"]
+                    ).with_input(Input.empty())
+                ),
+                "get_status": Need(
+                    Constraint(
+                        inputs=[Input.empty()]
+                    ).with_output(Output.from_schema(StatusMessage.avro_schema()))
+                )
             }
         )
 
@@ -78,11 +80,11 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             needed_operations={
                 "turn_on": Need(Constraint(
                     mandatory=["lamp_x_plugin"],
-                    input=SchemaSpec.empty()
+                    inputs=[Input.empty()]
                 )),
                 "turn_off": Need(Constraint(
                     mandatory=["lamp_x_plugin"],
-                    input=SchemaSpec.empty()
+                    inputs=[Input.empty()]
                 )),
             }
         )
