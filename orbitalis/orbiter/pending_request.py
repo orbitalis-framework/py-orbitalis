@@ -11,18 +11,12 @@ class PendingRequest:
     operation_name: str
     remote_identifier: str
 
-    offer_topic: Optional[str] = field(default=None, kw_only=True)
-    reply_topic: Optional[str] = field(default=None, kw_only=True)
-    response_topic: Optional[str] = field(default=None, kw_only=True)
-
     input: Input = field(default=None)
     output: Output = field(default=None)
 
     input_topic: Optional[str] = field(default=None, kw_only=True)
-    close_connection_to_local_topic: Optional[str] = field(default=None, kw_only=True)
+    incoming_close_connection_topic: Optional[str] = field(default=None, kw_only=True)
     close_connection_to_remote_topic: Optional[str] = field(default=None, kw_only=True)
-    keepalive_to_local_topic: Optional[str] = field(default=None, kw_only=True)
-    keepalive_to_remote_topic: Optional[str] = field(default=None, kw_only=True)
     output_topic: Optional[str] = field(default=None, kw_only=True)
 
     created_at: datetime = field(default_factory=lambda: datetime.now(), kw_only=True)
@@ -36,18 +30,11 @@ class PendingRequest:
         if self.input is None:
             raise ValueError("input missed")
 
-        # TODO
-        # if self.close_connection_to_local_topic is None:
-        #     raise ValueError("close_connection_to_local_topic missed")
-        #
-        # if self.close_connection_to_remote_topic is None:
-        #     raise ValueError("close_connection_to_remote_topic missed")
-        #
-        # if self.keepalive_to_remote_topic is None:
-        #     raise ValueError("keepalive_to_remote_topic missed")
-        #
-        # if  self.keepalive_to_local_topic is None:
-        #     raise ValueError("keepalive_to_local_topic missed")
+        if self.incoming_close_connection_topic is None:
+            raise ValueError("incoming_close_connection_topic missed")
+
+        if self.close_connection_to_remote_topic is None:
+            raise ValueError("close_connection_to_remote_topic missed")
 
         if self.output_topic is not None and self.output is None:
             raise ValueError("output missed")
@@ -60,8 +47,8 @@ class PendingRequest:
             input=self.input,
             output_topic=self.output_topic,
             output=self.output,
-            # close_connection_to_local_topic=self.close_connection_to_local_topic,
-            # close_connection_to_remote_topic=self.close_connection_to_remote_topic,
+            incoming_close_connection_topic=self.incoming_close_connection_topic,
+            close_connection_to_remote_topic=self.close_connection_to_remote_topic,
             # keepalive_to_local_topic=self.keepalive_to_local_topic,
             # keepalive_to_remote_topic=self.keepalive_to_remote_topic,
         )

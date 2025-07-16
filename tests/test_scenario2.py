@@ -52,12 +52,12 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             raise_exceptions=True,
             needed_operations={
                 "turn_on": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
+                    mandatory=[self.lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
                 )),
                 "turn_off": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
+                    mandatory=[self.lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
                 )),
@@ -73,12 +73,12 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             raise_exceptions=True,
             needed_operations={
                 "turn_on": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
+                    mandatory=[self.lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
                 )),
                 "turn_off": Need(Constraint(
-                    mandatory=["lamp_x_plugin"],
+                    mandatory=[self.lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
                 )),
@@ -102,7 +102,13 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(2)
 
-        self.assertFalse(self.smart_home2.is_compliance())      # turn_on should be missed
+        self.assertTrue(self.smart_home2.is_compliance())
+
+        await self.lamp_x_plugin.stop()
+        await self.smart_home1.stop()
+        await self.smart_home2.stop()
+
+        await asyncio.sleep(2)
 
 
 

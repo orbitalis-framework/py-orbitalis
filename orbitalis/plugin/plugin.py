@@ -7,14 +7,15 @@ from abc import ABC
 from dataclasses import dataclass, field
 
 from datetime import datetime
+from uuid import uuid4
+
 from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler, event_handler
 from busline.event.event import Event
 from orbitalis.core.need import Constraint, SetupData
 from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
 from orbitalis.events.reply import RequestMessage, RejectMessage
-from orbitalis.events.response import ResponseMessage
-from orbitalis.events.wellknown_topic import WellKnownTopic
+from orbitalis.events.response import ResponseMessage, ConfirmedOperation
 from orbitalis.orbiter.orbiter import Orbiter
 from orbitalis.orbiter.pending_request import PendingRequest
 from orbitalis.plugin.operation import Operation, OperationsProviderMixin
@@ -121,10 +122,10 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
 
 
     def build_reply_topic(self, core_identifier: str) -> str:
-        return WellKnownTopic.build_reply_topic(core_identifier, self.identifier)
+        return f"$handshake.{core_identifier}.{self.identifier}.reply.{uuid4()}"
 
     def build_operation_input_topic_for_core(self, core_identifier: str, operation_name: str) -> str:
-        return f"{operation_name}.{core_identifier}.{self.identifier}.input"
+        return f"{operation_name}.{core_identifier}.{self.identifier}.input.{uuid4()}"
 
     async def send_offer(self, offer_topic: str, core_identifier: str, offerable_operations: List[str]):
 
@@ -144,23 +145,35 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
 
         reply_topic = self.build_reply_topic(core_identifier)
 
-        for operation_name in offerable_operations:
-            self.add_pending_request(core_identifier, operation_name, PendingRequest(
-                operation_name=operation_name,
-                remote_identifier=core_identifier,
-                offer_topic=offer_topic,
-                reply_topic=reply_topic,
-                input=self.operations[operation_name].input,
-                output=self.operations[operation_name].output
-            ))
-
         try:
+            for operation_name in offerable_operations:
+                self.add_pending_request(core_identifier, operation_name, PendingRequest(
+                    operation_name=operation_name,
+                    remote_identifier=core_identifier,
+                    input=self.operations[operation_name].input,
+                    output=self.operations[operation_name].output
+                ))
+
+            self.related_topics[core_identifier].add(offer_topic)
+            self.related_topics[core_identifier].add(reply_topic)
 
             await self.eventbus_client.subscribe(
                 topic=reply_topic,
                 handler=self.reply_event_handler
             )
 
+        except Exception as e:
+            logging.error(f"{self}: {e}")
+
+            await self.eventbus_client.unsubscribe(reply_topic)
+
+            for operation_name in offerable_operations:
+                self.remove_pending_request(core_identifier, operation_name)
+
+            if self.raise_exceptions:
+                raise e
+
+        try:
             await self.eventbus_client.publish(
                 topic=offer_topic,
                 event=OfferMessage(
@@ -197,7 +210,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
 
         logging.debug(f"{self}: core {event.payload.core_identifier} confirms plug request for these operations: {event.payload.requested_operations}")
 
-        confirmed_operations: List[str] = []
+        confirmed_operation_names: List[str] = []
         operations_no_longer_available: List[str] = []
         for requested_operation in event.payload.requested_operations.values():
             plug_confirmed: bool = self.can_lend_to_core(event.payload.core_identifier, requested_operation.name)
@@ -205,29 +218,47 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
             logging.debug(f"{self}: can lend to {event.payload.core_identifier}? {plug_confirmed}")
 
             if plug_confirmed:
-                confirmed_operations.append(requested_operation.name)
+                confirmed_operation_names.append(requested_operation.name)
             else:
                 operations_no_longer_available.append(requested_operation.name)
 
         subscribed_topics: List[str] = []
-        confirmed_operations_and_input_topic: Dict[str, str] = {}
-        for confirmed_operation_name in confirmed_operations:
+        confirmed_operations: Dict[str, ConfirmedOperation] = {}
+        for confirmed_operation_name in confirmed_operation_names:
             input_topic: str = self.build_operation_input_topic_for_core(event.payload.core_identifier, confirmed_operation_name)
             output_topic: str = event.payload.requested_operations[confirmed_operation_name].output_topic
 
             try:
+                incoming_close_connection_topic = self.build_incoming_close_connection_topic(
+                    event.payload.core_identifier,
+                    confirmed_operation_name
+                )
+
                 await self.eventbus_client.subscribe(input_topic, self.operations[confirmed_operation_name].handler)
                 subscribed_topics.append(input_topic)
 
+                await self.eventbus_client.subscribe(
+                    incoming_close_connection_topic,
+                    self.close_connection_event_handler
+                )
+
+                self.related_topics[event.payload.core_identifier].add(event.payload.response_topic)
+
+                self.pending_requests_by_remote_identifier(event.payload.core_identifier)[confirmed_operation_name].incoming_close_connection_topic = incoming_close_connection_topic
                 self.pending_requests_by_remote_identifier(event.payload.core_identifier)[confirmed_operation_name].input_topic = input_topic
                 self.pending_requests_by_remote_identifier(event.payload.core_identifier)[confirmed_operation_name].output_topic = output_topic
+                self.pending_requests_by_remote_identifier(event.payload.core_identifier)[confirmed_operation_name].close_connection_to_remote_topic = event.payload.requested_operations[confirmed_operation_name].core_close_connection_topic
 
-                confirmed_operations_and_input_topic[confirmed_operation_name] = input_topic
+                confirmed_operations[confirmed_operation_name] = ConfirmedOperation(
+                    name=confirmed_operation_name,
+                    input_topic=input_topic,
+                    plugin_close_connection_topic=incoming_close_connection_topic
+                )
 
             except Exception as e:
                 logging.error(f"{self}: {e}")
 
-                await self.eventbus_client.multi_unsubscribe(subscribed_topics)
+                await self.eventbus_client.multi_unsubscribe(subscribed_topics, parallelize=self.parallelize)
 
                 if self.raise_exceptions:
                     raise e
@@ -240,16 +271,16 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
                 event.payload.response_topic,
                 ResponseMessage(
                     plugin_identifier=self.identifier,
-                    confirmed_operations=confirmed_operations_and_input_topic,
-                    operations_no_longer_available=operations_no_longer_available
+                    confirmed_operations=confirmed_operations,
+                    operations_no_longer_available=operations_no_longer_available,
                 ).into_event()
             )
 
             for operation_name in operations_no_longer_available:
                 self.remove_pending_request(event.payload.core_identifier, operation_name)
 
-            for operation_name in confirmed_operations:
-                self.promote_pending_request_to_connection(event.payload.core_identifier, operation_name)
+            for operation_name in confirmed_operation_names:
+                await self.promote_pending_request_to_connection(event.payload.core_identifier, operation_name)
 
                 setup_data = event.payload.requested_operations[operation_name].setup_data
 
@@ -264,9 +295,10 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
         except Exception as e:
             logging.error(f"{self}: {e}")
 
-            await self.eventbus_client.multi_unsubscribe(
-                [input_topic for input_topic in confirmed_operations_and_input_topic.values()]
-            )
+            await self.eventbus_client.multi_unsubscribe([
+                *[confirmed_operation.input_topic for confirmed_operation in confirmed_operations.values()],
+                *[confirmed_operation.plugin_close_connection_topic for confirmed_operation in confirmed_operations.values()]
+            ])
 
             if self.raise_exceptions:
                 raise e
@@ -287,7 +319,6 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
 
         else:
             raise ValueError("Unexpected reply payload")
-
 
     def __str__(self):
         return f"Plugin('{self.identifier}')"

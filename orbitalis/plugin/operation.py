@@ -53,7 +53,7 @@ class _OperationDescriptor(InputOutput):
         return self.func.__get__(instance, owner)
 
 
-def operation(*, input: Optional[Input] = None, policy: Optional[Policy] = None, output: Optional[Output] = None, name: Optional[str] = None):
+def operation(*, input: Optional[Input] = None, default_policy: Optional[Policy] = None, output: Optional[Output] = None, name: Optional[str] = None):
 
     if input is None:
         input = Input.no_input()
@@ -61,8 +61,8 @@ def operation(*, input: Optional[Input] = None, policy: Optional[Policy] = None,
     if output is None:
         output = Output.no_output()
 
-    if policy is None:
-        policy = Policy.no_constraints()
+    if default_policy is None:
+        default_policy = Policy.no_constraints()
 
     def decorator(func):
         if not inspect.iscoroutinefunction(func):
@@ -73,7 +73,7 @@ def operation(*, input: Optional[Input] = None, policy: Optional[Policy] = None,
         return _OperationDescriptor(
             func=func,
             operation_name=op_name,
-            policy=policy,
+            policy=default_policy,
             input=input,
             output=output
         )

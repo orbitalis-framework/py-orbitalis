@@ -15,6 +15,10 @@ class RequestedOperation(Generic[SetupData], AvroModel):
     name: str
     output_topic: Optional[str]
     setup_data: Optional[SetupData]
+    core_close_connection_topic: str
+
+    # TODO
+    # core_keepalive_topic: str
 
 
 @dataclass(frozen=True)
@@ -29,10 +33,6 @@ class RequestMessage(AvroEventPayload, Generic[SetupData]):
     """
 
     core_identifier: str
-
-    # TODO
-    # core_close_connection_topic: str
-    # core_keepalive_topic: str
 
     requested_operations: Dict[str, RequestedOperation[SetupData]]  # operation_name => RequestedOperation
     response_topic: Optional[str] = field(default=None)

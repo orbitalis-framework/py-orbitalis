@@ -25,13 +25,12 @@ class Connection(InputOutput):
     operation_name: str
     remote_identifier: str
 
-    input_topic: Optional[str] = field(default=None)
-
-    # close_connection_to_local_topic: str
-    # close_connection_to_remote_topic: str
+    incoming_close_connection_topic: str
+    close_connection_to_remote_topic: str
     # keepalive_to_local_topic: str
     # keepalive_to_remote_topic: str
 
+    input_topic: Optional[str] = field(default=None)
     output_topic: Optional[str] = field(default=None)
 
     created_at: datetime = field(default_factory=lambda: datetime.now())
@@ -39,3 +38,6 @@ class Connection(InputOutput):
 
     def touch(self):
         self.last_use = datetime.now()
+
+    def __str__(self):
+        return f"('{self.remote_identifier}', '{self.operation_name}')"

@@ -6,18 +6,18 @@ from datetime import datetime
 import logging
 from dataclasses import dataclass, field
 from typing import override, Dict, Set, Optional, List, Tuple
-
+from uuid import uuid4
 from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler, event_handler
 from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
 from busline.event.avro_payload import AvroEventPayload
 from busline.event.event import Event
 from orbitalis.core.sink import SinksProviderMixin
 from orbitalis.core.state import CoreState
+from orbitalis.events.close_connection import GracefulCloneConnectionMessage, GracelessCloneConnectionMessage
 from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
 from orbitalis.events.reply import RequestMessage, RejectMessage, RequestedOperation
 from orbitalis.events.response import ResponseMessage
-from orbitalis.events.wellknown_topic import WellKnownTopic
 from orbitalis.core.need import Constraint, Need
 from orbitalis.orbiter.connection import Connection
 from orbitalis.orbiter.orbiter import Orbiter
@@ -100,7 +100,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
 
     def build_offer_topic(self) -> str:
-        return f"$handshake.{self.identifier}.offer"
+        return f"$handshake.{self.identifier}.offer.{uuid4()}"
 
     @classmethod
     def _is_plugin_operation_needed_by_need(cls, need: Constraint) -> bool:
@@ -163,13 +163,10 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
         return True
 
     def build_response_topic(self, plugin_identifier: str) -> str:
-        return WellKnownTopic.build_response_topic(
-                    self.identifier,
-                    plugin_identifier
-                )
+        return f"$handshake.{self.identifier}.{plugin_identifier}.response.{uuid4()}"
 
     def build_operation_output_topic(self, plugin_identifier: str, operation_name: str) -> str:
-        return f"{operation_name}.{self.identifier}.{plugin_identifier}.output"
+        return f"{operation_name}.{self.identifier}.{plugin_identifier}.output.{uuid4()}"
 
     @event_handler
     async def offer_event_handler(self, topic: str, event: Event[OfferMessage]):
@@ -203,6 +200,10 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                 output = offered_operation.output
                 output_topic = self.build_operation_output_topic(event.payload.plugin_identifier, offered_operation.operation_name)
 
+                incoming_close_connection_topic: str = self.build_incoming_close_connection_topic(
+                    event.payload.plugin_identifier,
+                    offered_operation.operation_name
+                )
 
                 self.add_pending_request(event.payload.plugin_identifier, offered_operation.operation_name, PendingRequest(
                     operation_name=offered_operation.operation_name,
@@ -210,15 +211,18 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                     output_topic=output_topic,
                     output=output,
                     input=offered_operation.input,
-                    offer_topic=topic,
-                    response_topic=response_topic,
-                    reply_topic=event.payload.reply_topic,
+                    incoming_close_connection_topic=incoming_close_connection_topic
                 ))
+
+                self.related_topics[event.payload.plugin_identifier].add(topic)
+                self.related_topics[event.payload.plugin_identifier].add(event.payload.reply_topic)
+                self.related_topics[event.payload.plugin_identifier].add(response_topic)
 
                 requested_operations[offered_operation.operation_name] = RequestedOperation(
                     name=offered_operation.operation_name,
                     output_topic=output_topic,
-                    setup_data=self.needed_operations[offered_operation.operation_name].setup_data
+                    setup_data=self.needed_operations[offered_operation.operation_name].setup_data,
+                    core_close_connection_topic=incoming_close_connection_topic
                 )
 
             try:
@@ -235,7 +239,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                 logging.error(f"{self}: {e}")
 
                 for operation_name, result_topic in requested_operations.items():
-                    del self.pending_requests[event.payload.plugin_identifier][operation_name]
+                    self.remove_pending_request(event.payload.plugin_identifier, operation_name)
 
                 if self.raise_exceptions:
                     raise e
@@ -249,7 +253,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                 event=RejectMessage(
                     core_identifier=self.identifier,
                     description="Not needed anymore, sorry",
-                    rejected_operations=[offered_operation.operation_name for offered_operation in operations_to_reject]
+                    rejected_operations=[offered_operation.operation_name for offered_operation in operations_to_reject],
                 ).into_event()
             )
 
@@ -260,7 +264,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
         logging.debug(f"{self}: new response: {topic} -> {event}")
 
-        for borrowed_operation_name, input_topic in event.payload.confirmed_operations.items():
+        for borrowed_operation_name, confirmed_operation in event.payload.confirmed_operations.items():
 
             if event.payload.plugin_identifier not in self.pending_requests \
                 or borrowed_operation_name not in self.pending_requests_by_remote_identifier(event.payload.plugin_identifier):
@@ -269,7 +273,10 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
             try:
 
-                self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].input_topic = input_topic
+                await self.eventbus_client.subscribe(
+                    self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].incoming_close_connection_topic,
+                    self.close_connection_event_handler
+                )
 
                 if self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output is not None:
 
@@ -286,13 +293,16 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                             handler
                         )
 
-                self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].input_topic = input_topic
-                self.promote_pending_request_to_connection(event.payload.plugin_identifier, borrowed_operation_name)
+                self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].input_topic = confirmed_operation.input_topic
+                self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].close_connection_to_remote_topic = confirmed_operation.plugin_close_connection_topic
+
+                await self.promote_pending_request_to_connection(event.payload.plugin_identifier, borrowed_operation_name)
 
             except Exception as e:
                 logging.error(f"{self}: {e}")
 
                 await self.eventbus_client.unsubscribe(self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic)
+                await self.eventbus_client.unsubscribe(self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].incoming_close_connection_topic)
 
                 if self.raise_exceptions:
                     raise e
@@ -316,7 +326,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
             self.discover_topic,
         ]
 
-        await self.eventbus_client.multi_unsubscribe(topics, parallelize=True)
+        await self.eventbus_client.multi_unsubscribe(topics, parallelize=self.parallelize)
 
 
     def __check_compatibility_connection_payload(self, connection: Connection, payload: Optional[AvroEventPayload], undefined_is_compatible: bool) -> bool:

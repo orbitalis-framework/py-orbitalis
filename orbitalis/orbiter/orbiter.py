@@ -3,13 +3,19 @@ import logging
 from abc import ABC
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any, Set
 from busline.client.pubsub_client import PubTopicSubClient
 import uuid
 
-from orbitalis.events.wellknown_topic import WellKnownTopic
+from busline.client.subscriber.topic_subscriber.event_handler import event_handler
+from busline.event.event import Event
+from orbitalis.events.close_connection import GracefulCloneConnectionMessage, GracelessCloneConnectionMessage, \
+    CloseConnectionAckMessage
 from orbitalis.orbiter.connection import Connection
 from orbitalis.orbiter.pending_request import PendingRequest
+
+
+DEFAULT_DISCOVER_TOPIC = "$handshake.discover"
 
 
 @dataclass(kw_only=True)
@@ -23,11 +29,12 @@ class Orbiter(ABC):
 
     identifier: str = field(default_factory=lambda: str(uuid.uuid4()))
 
-    discover_topic: str = field(default_factory=lambda: WellKnownTopic.discover_topic())
-
+    discover_topic: str = field(default=DEFAULT_DISCOVER_TOPIC)
+    parallelize: bool = field(default=True)
     raise_exceptions: bool = field(default=False)
-
     undefined_is_compatible: bool = False
+
+    related_topics: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set))   # remote_identifier => topics
     connections: Dict[str, Dict[str, Connection]] = field(default_factory=lambda: defaultdict(dict), init=False)    # remote_identifier => { operation_name => Connection }
     pending_requests: Dict[str, Dict[str, PendingRequest]] = field(default_factory=lambda: defaultdict(dict), init=False)    # remote_identifier => { operation_name => PendingRequest }
 
@@ -38,11 +45,29 @@ class Orbiter(ABC):
     def add_connection(self, remote_identifier: str, operation_name: str, connection: Connection):
         self.connections[remote_identifier][operation_name] = connection
 
+    def remove_connection(self, remote_identifier: str, operation_name: str) -> Optional[Connection]:
+        if remote_identifier in self.connections:
+            if operation_name in self.connections[remote_identifier]:
+                return self.connections[remote_identifier].pop(operation_name)
+
+        logging.warning(f"{self}: no connection for identifier '{remote_identifier}' and operation '{operation_name}'")
+
+        return None
+
     def pending_requests_by_remote_identifier(self, remote_identifier: str) -> Dict[str, PendingRequest]:
         return self.pending_requests[remote_identifier]
 
     def add_pending_request(self, remote_identifier: str, operation_name: str, pending_request: PendingRequest):
         self.pending_requests[remote_identifier][operation_name] = pending_request
+
+    def remove_pending_request(self, remote_identifier: str, operation_name: str) -> Optional[PendingRequest]:
+        if remote_identifier in self.pending_requests:
+            if operation_name in self.pending_requests[remote_identifier]:
+                return self.pending_requests[remote_identifier].pop(operation_name)
+
+        logging.warning(f"{self}: no pending request for identifier '{remote_identifier}' and operation '{operation_name}'")
+
+        return None
 
     def retrieve_connections(self, *, remote_identifier: Optional[str] = None, input_topic: Optional[str] = None, output_topic: Optional[str] = None, operation_name: Optional[str] = None) -> List[Connection]:
         # TODO: cache?
@@ -69,17 +94,112 @@ class Orbiter(ABC):
 
         return connections
 
-    def promote_pending_request_to_connection(self, remote_identifier: str, operation_name: str):
-        pending_request = self.pending_requests_by_remote_identifier(remote_identifier)[operation_name]
+    async def _on_promote_pending_request_to_connection(self, remote_identifier: str, operation_name: str):
+        """
+        TODO: doc
+        """
 
-        self.add_connection(remote_identifier, operation_name, pending_request.into_connection())
+    async def promote_pending_request_to_connection(self, remote_identifier: str, operation_name: str):
+        try:
+            pending_request = self.pending_requests_by_remote_identifier(remote_identifier)[operation_name]
 
-    def remove_pending_request(self, remote_identifier: str, operation_name: str):
-        if remote_identifier not in self.pending_requests or operation_name not in self.pending_requests[remote_identifier]:
-            logging.warning(f"{self}: pending request not present for identifier '{remote_identifier}' and operation '{operation_name}'")
-            return
+            await self._on_promote_pending_request_to_connection(remote_identifier, operation_name)
 
-        del self.pending_requests[remote_identifier][operation_name]
+            self.add_connection(remote_identifier, operation_name, pending_request.into_connection())
+            self.remove_pending_request(remote_identifier, operation_name)
+
+        except Exception as e:
+            logging.error(f"{self}: {e}")
+
+            if self.raise_exceptions:
+                raise e
+
+    def build_incoming_close_connection_topic(self, remote_identifier: str, operation_name: str) -> str:
+        return f"{operation_name}.{self.identifier}.{remote_identifier}.close.{uuid.uuid4()}"
+
+    async def _on_close_connection(self, remote_identifier: str, operation_name: str, data: Any):
+        """
+        TODO: doc
+        """
+
+    async def _close_connection(self, remote_identifier: str, operation_name: str):
+
+        try:
+            connection = self.remove_connection(
+                remote_identifier,
+                operation_name
+            )
+
+            topics: List[str] = [
+                connection.incoming_close_connection_topic,
+                connection.close_connection_to_remote_topic,
+            ]
+
+            if connection.input_topic is not None:
+                topics.append(connection.input_topic)
+
+            if connection.output_topic is not None:
+                topics.append(connection.output_topic)
+
+            if len(self.connections[remote_identifier].values()) == 0:
+                topics.extend(self.related_topics[remote_identifier])
+                self.related_topics.pop(remote_identifier)
+
+            await self.eventbus_client.multi_unsubscribe(topics, parallelize=self.parallelize)
+
+            logging.info(f"{self}: connection {self.connections[remote_identifier][operation_name]} closed")
+
+        except Exception as e:
+            logging.error(f"{self}: {e}")
+
+            if self.raise_exceptions:
+                raise e
+
+    async def _graceful_close_connection(self, topic: str, close_connection_message: GracefulCloneConnectionMessage):
+        await self._on_close_connection(
+            close_connection_message.remote_identifier,
+            close_connection_message.operation_name,
+            close_connection_message.data
+        )
+
+        await self.eventbus_client.publish(
+            close_connection_message.ack_topic,
+            self.close_connection_ack_event_handler
+        )
+
+    @event_handler
+    async def close_connection_ack_event_handler(self, topic: str, event: Event[CloseConnectionAckMessage]):
+        await self._close_connection(
+            event.payload.remote_identifier,
+            event.payload.operation_name
+        )
+
+    @event_handler
+    async def close_connection_event_handler(self, topic: str, event: Event[GracefulCloneConnectionMessage | GracelessCloneConnectionMessage]):
+        try:
+            if isinstance(event.payload, GracefulCloneConnectionMessage):
+                await self._graceful_close_connection(topic, event.payload)
+
+            elif isinstance(event.payload, GracelessCloneConnectionMessage):
+                await self._on_close_connection(
+                    event.payload.remote_identifier,
+                    event.payload.operation_name,
+                    event.payload.data
+                )
+
+                await self._close_connection(
+                    event.payload.remote_identifier,
+                    event.payload.operation_name
+                )
+
+            else:
+                logging.error(f"{self}: unable to handle close connection event: {event}")
+
+        except Exception as e:
+            logging.error(f"{self}: {e}")
+
+            if self.raise_exceptions:
+                raise e
 
     def discard_expired_pending_requests(self):
         """
