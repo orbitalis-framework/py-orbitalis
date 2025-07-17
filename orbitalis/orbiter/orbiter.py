@@ -34,7 +34,7 @@ class Orbiter(ABC):
     raise_exceptions: bool = field(default=False)
     undefined_is_compatible: bool = False
 
-    related_topics: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set))   # remote_identifier => topics
+    related_subscribed_topics: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set))   # remote_identifier => topics
     connections: Dict[str, Dict[str, Connection]] = field(default_factory=lambda: defaultdict(dict), init=False)    # remote_identifier => { operation_name => Connection }
     pending_requests: Dict[str, Dict[str, PendingRequest]] = field(default_factory=lambda: defaultdict(dict), init=False)    # remote_identifier => { operation_name => PendingRequest }
 
@@ -164,13 +164,12 @@ class Orbiter(ABC):
             if connection is None:
                 raise ValueError(f"Connection not found for '{remote_identifier}', '{operation_name}'")
 
+            await self._on_close_connection(connection)
 
 
             if len(self.connections[remote_identifier].values()) == 0:
-                topics.extend(self.related_topics[remote_identifier])
-                self.related_topics.pop(remote_identifier)
-
-            await self.eventbus_client.multi_unsubscribe(topics, parallelize=self.parallelize)
+                await self.eventbus_client.multi_unsubscribe(list(self.related_subscribed_topics[remote_identifier]), parallelize=self.parallelize)
+                self.related_subscribed_topics.pop(remote_identifier)
 
             logging.info(f"{self}: connection {connection} closed")
 
@@ -201,7 +200,7 @@ class Orbiter(ABC):
             connection = connections[0]
 
             ack_topic = self.build_ack_close_topic(remote_identifier, operation_name)
-            self.related_topics[remote_identifier].add(ack_topic)
+            self.related_subscribed_topics[remote_identifier].add(ack_topic)
 
             await self.eventbus_client.subscribe(ack_topic, self._close_connection_ack_event_handler)
 
@@ -233,9 +232,17 @@ class Orbiter(ABC):
             close_connection_message.data
         )
 
+        await self._close_connection(
+            close_connection_message.remote_identifier,
+            close_connection_message.operation_name
+        )
+
         await self.eventbus_client.publish(
             close_connection_message.ack_topic,
-            self._close_connection_ack_event_handler
+            CloseConnectionAckMessage(
+                self.identifier,
+                close_connection_message.operation_name
+            ).into_event()
         )
 
     @event_handler

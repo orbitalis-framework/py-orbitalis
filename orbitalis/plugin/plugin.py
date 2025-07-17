@@ -16,6 +16,7 @@ from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
 from orbitalis.events.reply import RequestMessage, RejectMessage
 from orbitalis.events.response import ResponseMessage, ConfirmedOperation
+from orbitalis.orbiter.connection import Connection
 from orbitalis.orbiter.orbiter import Orbiter
 from orbitalis.orbiter.pending_request import PendingRequest
 from orbitalis.plugin.operation import Operation, OperationsProviderMixin
@@ -51,6 +52,18 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
         topics: List[str] = [
             self.discover_topic,
         ]
+
+        await self.eventbus_client.multi_unsubscribe(topics, parallelize=self.parallelize)
+
+    @override
+    async def _on_close_connection(self, connection: Connection):
+
+        topics: List[str] = [
+            connection.incoming_close_connection_topic,
+        ]
+
+        if connection.input_topic is not None:
+            topics.append(connection.input_topic)
 
         await self.eventbus_client.multi_unsubscribe(topics, parallelize=self.parallelize)
 
@@ -163,8 +176,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
                     output=self.operations[operation_name].output
                 ))
 
-            self.related_topics[core_identifier].add(offer_topic)
-            self.related_topics[core_identifier].add(reply_topic)
+            self.related_subscribed_topics[core_identifier].add(reply_topic)
 
             await self.eventbus_client.subscribe(
                 topic=reply_topic,
@@ -251,7 +263,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
                     self._close_connection_event_handler
                 )
 
-                self.related_topics[event.payload.core_identifier].add(event.payload.response_topic)
+                self.related_subscribed_topics[event.payload.core_identifier].add(event.payload.response_topic)
 
                 self.pending_requests_by_remote_identifier(event.payload.core_identifier)[confirmed_operation_name].incoming_close_connection_topic = incoming_close_connection_topic
                 self.pending_requests_by_remote_identifier(event.payload.core_identifier)[confirmed_operation_name].input_topic = input_topic

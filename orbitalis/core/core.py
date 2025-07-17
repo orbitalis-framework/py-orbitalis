@@ -52,13 +52,10 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
     @override
     async def _on_close_connection(self, connection: Connection):
+
         topics: List[str] = [
             connection.incoming_close_connection_topic,
-            connection.close_connection_to_remote_topic,
         ]
-
-        if connection.input_topic is not None:
-            topics.append(connection.input_topic)
 
         if connection.output_topic is not None:
             topics.append(connection.output_topic)
@@ -138,7 +135,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
         return needed_operations
 
-    async def send_discover(self, needed_operations: Dict[str, Constraint]):
+    async def send_discover_for_operations(self, needed_operations: Dict[str, Constraint]):
 
         offer_topic = self.build_offer_topic()
 
@@ -158,6 +155,12 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                 offer_topic=offer_topic
             ).into_event()
         )
+
+    async def send_discover_based_on_needs(self):
+        needed_operations: Dict[str, Constraint] = self.operation_to_discover()
+
+        if len(needed_operations) > 0:
+            await self.send_discover_for_operations(needed_operations)
 
     def is_plugin_operation_needed_and_pluggable(self, plugin_identifier: str, offered_operation: OfferedOperation) -> bool:
 
@@ -201,9 +204,8 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
         if len(operations_to_request) > 0:
             logging.debug(f"{self}: operations to request: {operations_to_request}")
 
-            self.related_topics[event.payload.plugin_identifier].add(topic)
-            self.related_topics[event.payload.plugin_identifier].add(event.payload.reply_topic)
-            self.related_topics[event.payload.plugin_identifier].add(response_topic)
+            self.related_subscribed_topics[event.payload.plugin_identifier].add(topic)
+            self.related_subscribed_topics[event.payload.plugin_identifier].add(response_topic)
 
             await self.eventbus_client.subscribe(
                 topic=response_topic,
@@ -293,7 +295,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                     self._close_connection_event_handler
                 )
 
-                if self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output is not None:
+                if self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output.has_output:
 
                     handler: Optional[EventHandler] = None
                     if borrowed_operation_name in self.operation_sink:
@@ -307,6 +309,10 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                             self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic,
                             handler
                         )
+
+                else:
+                    self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic = None
+                    self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output = None
 
                 self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].input_topic = confirmed_operation.input_topic
                 self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].close_connection_to_remote_topic = confirmed_operation.plugin_close_connection_topic
@@ -328,10 +334,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
         self.update_compliance()
 
-        needed_operations: Dict[str, Constraint] = self.operation_to_discover()
-
-        if len(needed_operations) > 0:
-            await self.send_discover(needed_operations)
+        await self.send_discover_based_on_needs()
 
     @override
     async def _internal_stop(self, *args, **kwargs):
