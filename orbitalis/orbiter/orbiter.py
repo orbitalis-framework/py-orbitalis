@@ -3,7 +3,7 @@ import logging
 from abc import ABC
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, Coroutine
 from busline.client.pubsub_client import PubTopicSubClient
 import uuid
 
@@ -42,10 +42,10 @@ class Orbiter(ABC):
     def connections_by_remote_identifier(self, remote_identifier: str) -> Dict[str, Connection]:
         return self.connections[remote_identifier]
 
-    def add_connection(self, remote_identifier: str, operation_name: str, connection: Connection):
+    def _add_connection(self, remote_identifier: str, operation_name: str, connection: Connection):
         self.connections[remote_identifier][operation_name] = connection
 
-    def remove_connection(self, remote_identifier: str, operation_name: str) -> Optional[Connection]:
+    def _remove_connection(self, remote_identifier: str, operation_name: str) -> Optional[Connection]:
         if remote_identifier in self.connections:
             if operation_name in self.connections[remote_identifier]:
                 return self.connections[remote_identifier].pop(operation_name)
@@ -57,10 +57,10 @@ class Orbiter(ABC):
     def pending_requests_by_remote_identifier(self, remote_identifier: str) -> Dict[str, PendingRequest]:
         return self.pending_requests[remote_identifier]
 
-    def add_pending_request(self, remote_identifier: str, operation_name: str, pending_request: PendingRequest):
+    def _add_pending_request(self, remote_identifier: str, operation_name: str, pending_request: PendingRequest):
         self.pending_requests[remote_identifier][operation_name] = pending_request
 
-    def remove_pending_request(self, remote_identifier: str, operation_name: str) -> Optional[PendingRequest]:
+    def _remove_pending_request(self, remote_identifier: str, operation_name: str) -> Optional[PendingRequest]:
         if remote_identifier in self.pending_requests:
             if operation_name in self.pending_requests[remote_identifier]:
                 return self.pending_requests[remote_identifier].pop(operation_name)
@@ -105,8 +105,8 @@ class Orbiter(ABC):
 
             await self._on_promote_pending_request_to_connection(remote_identifier, operation_name)
 
-            self.add_connection(remote_identifier, operation_name, pending_request.into_connection())
-            self.remove_pending_request(remote_identifier, operation_name)
+            self._add_connection(remote_identifier, operation_name, pending_request.into_connection())
+            self._remove_pending_request(remote_identifier, operation_name)
 
         except Exception as e:
             logging.error(f"{self}: {e}")
@@ -117,37 +117,25 @@ class Orbiter(ABC):
     def build_incoming_close_connection_topic(self, remote_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{self.identifier}.{remote_identifier}.close.{uuid.uuid4()}"
 
-    async def _on_close_connection(self, remote_identifier: str, operation_name: str, data: Any):
-        """
-        TODO: doc
-        """
 
-    async def _close_connection(self, remote_identifier: str, operation_name: str):
-
+    async def graceless_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[Any] = None):
         try:
-            connection = self.remove_connection(
+
+            await self._on_graceless_close_connection(remote_identifier, operation_name, data)
+
+            connection = await self._close_connection(
                 remote_identifier,
                 operation_name
             )
 
-            topics: List[str] = [
-                connection.incoming_close_connection_topic,
+            await self.eventbus_client.publish(
                 connection.close_connection_to_remote_topic,
-            ]
-
-            if connection.input_topic is not None:
-                topics.append(connection.input_topic)
-
-            if connection.output_topic is not None:
-                topics.append(connection.output_topic)
-
-            if len(self.connections[remote_identifier].values()) == 0:
-                topics.extend(self.related_topics[remote_identifier])
-                self.related_topics.pop(remote_identifier)
-
-            await self.eventbus_client.multi_unsubscribe(topics, parallelize=self.parallelize)
-
-            logging.info(f"{self}: connection {self.connections[remote_identifier][operation_name]} closed")
+                GracelessCloneConnectionMessage(
+                    self.identifier,
+                    operation_name,
+                    data
+                ).into_event()
+            )
 
         except Exception as e:
             logging.error(f"{self}: {e}")
@@ -155,8 +143,91 @@ class Orbiter(ABC):
             if self.raise_exceptions:
                 raise e
 
-    async def _graceful_close_connection(self, topic: str, close_connection_message: GracefulCloneConnectionMessage):
-        await self._on_close_connection(
+    async def _on_graceless_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[Any]):
+        """
+        TODO: doc
+        """
+
+    async def _on_close_connection(self, connection: Connection):
+        """
+        TODO: doc
+        """
+
+    async def _close_connection(self, remote_identifier: str, operation_name: str) -> Optional[Connection]:
+
+        try:
+            connection = self._remove_connection(
+                remote_identifier,
+                operation_name
+            )
+
+            if connection is None:
+                raise ValueError(f"Connection not found for '{remote_identifier}', '{operation_name}'")
+
+
+
+            if len(self.connections[remote_identifier].values()) == 0:
+                topics.extend(self.related_topics[remote_identifier])
+                self.related_topics.pop(remote_identifier)
+
+            await self.eventbus_client.multi_unsubscribe(topics, parallelize=self.parallelize)
+
+            logging.info(f"{self}: connection {connection} closed")
+
+            return connection
+
+        except Exception as e:
+            logging.error(f"{self}: {e}")
+
+            if self.raise_exceptions:
+                raise e
+
+        return None
+
+    def build_ack_close_topic(self, remote_identifier: str, operation_name: str) -> str:
+        return f"{operation_name}.{self.identifier}.{remote_identifier}.close.ack.{uuid.uuid4()}"
+
+    async def graceful_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[Any] = None):
+        try:
+            await self._on_graceful_close_connection(remote_identifier, operation_name, data)
+
+            connections = self.retrieve_connections(
+                remote_identifier=remote_identifier,
+                operation_name=operation_name
+            )
+
+            assert len(connections) == 1
+
+            connection = connections[0]
+
+            ack_topic = self.build_ack_close_topic(remote_identifier, operation_name)
+            self.related_topics[remote_identifier].add(ack_topic)
+
+            await self.eventbus_client.subscribe(ack_topic, self._close_connection_ack_event_handler)
+
+            await self.eventbus_client.publish(
+                connection.close_connection_to_remote_topic,
+                GracefulCloneConnectionMessage(
+                    self.identifier,
+                    operation_name,
+                    ack_topic,
+                    data
+                ).into_event()
+            )
+
+        except Exception as e:
+            logging.error(f"{self}: {e}")
+
+            if self.raise_exceptions:
+                raise e
+
+    async def _on_graceful_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[Any]):
+        """
+        TODO: doc
+        """
+
+    async def _graceful_close_connection_event_handler(self, topic: str, close_connection_message: GracefulCloneConnectionMessage):
+        await self._on_graceful_close_connection(
             close_connection_message.remote_identifier,
             close_connection_message.operation_name,
             close_connection_message.data
@@ -164,24 +235,24 @@ class Orbiter(ABC):
 
         await self.eventbus_client.publish(
             close_connection_message.ack_topic,
-            self.close_connection_ack_event_handler
+            self._close_connection_ack_event_handler
         )
 
     @event_handler
-    async def close_connection_ack_event_handler(self, topic: str, event: Event[CloseConnectionAckMessage]):
+    async def _close_connection_ack_event_handler(self, topic: str, event: Event[CloseConnectionAckMessage]):
         await self._close_connection(
             event.payload.remote_identifier,
             event.payload.operation_name
         )
 
     @event_handler
-    async def close_connection_event_handler(self, topic: str, event: Event[GracefulCloneConnectionMessage | GracelessCloneConnectionMessage]):
+    async def _close_connection_event_handler(self, topic: str, event: Event[GracefulCloneConnectionMessage | GracelessCloneConnectionMessage]):
         try:
             if isinstance(event.payload, GracefulCloneConnectionMessage):
-                await self._graceful_close_connection(topic, event.payload)
+                await self._graceful_close_connection_event_handler(topic, event.payload)
 
             elif isinstance(event.payload, GracelessCloneConnectionMessage):
-                await self._on_close_connection(
+                await self._on_graceless_close_connection(
                     event.payload.remote_identifier,
                     event.payload.operation_name,
                     event.payload.data

@@ -44,6 +44,15 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
         await self.subscribe_on_discover()
         self.state = PluginState.RUNNING
 
+    @override
+    async def _internal_stop(self, *args, **kwargs):
+        await super()._internal_stop(*args, **kwargs)
+
+        topics: List[str] = [
+            self.discover_topic,
+        ]
+
+        await self.eventbus_client.multi_unsubscribe(topics, parallelize=self.parallelize)
 
     async def subscribe_on_discover(self):
         await self.eventbus_client.subscribe(self.discover_topic, self.discover_event_handler)
@@ -147,7 +156,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
 
         try:
             for operation_name in offerable_operations:
-                self.add_pending_request(core_identifier, operation_name, PendingRequest(
+                self._add_pending_request(core_identifier, operation_name, PendingRequest(
                     operation_name=operation_name,
                     remote_identifier=core_identifier,
                     input=self.operations[operation_name].input,
@@ -168,7 +177,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
             await self.eventbus_client.unsubscribe(reply_topic)
 
             for operation_name in offerable_operations:
-                self.remove_pending_request(core_identifier, operation_name)
+                self._remove_pending_request(core_identifier, operation_name)
 
             if self.raise_exceptions:
                 raise e
@@ -186,7 +195,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
             logging.error(f"{self}: {e}")
 
             for operation_name in offerable_operations:
-                self.remove_pending_request(core_identifier, operation_name)
+                self._remove_pending_request(core_identifier, operation_name)
 
             if self.raise_exceptions:
                 raise e
@@ -239,7 +248,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
 
                 await self.eventbus_client.subscribe(
                     incoming_close_connection_topic,
-                    self.close_connection_event_handler
+                    self._close_connection_event_handler
                 )
 
                 self.related_topics[event.payload.core_identifier].add(event.payload.response_topic)
@@ -277,7 +286,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
             )
 
             for operation_name in operations_no_longer_available:
-                self.remove_pending_request(event.payload.core_identifier, operation_name)
+                self._remove_pending_request(event.payload.core_identifier, operation_name)
 
             for operation_name in confirmed_operation_names:
                 await self.promote_pending_request_to_connection(event.payload.core_identifier, operation_name)

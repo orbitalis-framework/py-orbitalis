@@ -41,6 +41,8 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             policy=Policy(allowlist=["smart_home1"])
         )
 
+        self.lamp_x_plugin.eventbus_client.subscribers[0].identifier = "lamp_x_plugin_subscriber"
+
         self.assertTrue("turn_on" in self.lamp_x_plugin.operations)
         self.assertTrue("turn_off" in self.lamp_x_plugin.operations)
         self.assertTrue("get_status" in self.lamp_x_plugin.operations)
@@ -73,6 +75,8 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 )
             }
         )
+
+        self.smart_home1.eventbus_client.subscribers[0].identifier = "smart_home1_subscriber"
 
         self.smart_home2 = SmartHomeCore(
             identifier="smart_home2",
@@ -114,12 +118,48 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(self.smart_home2.is_compliance())
 
-        await self.lamp_x_plugin.stop()
-        await self.smart_home1.stop()
-        await self.smart_home2.stop()
+    async def test_close_connection(self):
+        self.assertFalse(self.smart_home1.is_compliance())
+
+        await self.lamp_x_plugin.start()
+        await self.smart_home1.start()
 
         await asyncio.sleep(2)
 
+        self.assertTrue(self.smart_home1.is_compliance())
+
+        self.assertTrue(len(self.smart_home1.retrieve_connections(
+            remote_identifier=self.lamp_x_plugin.identifier,
+            operation_name="turn_on"
+        )) == 1)
+
+        self.assertTrue(len(self.lamp_x_plugin.retrieve_connections(
+            remote_identifier=self.smart_home1.identifier,
+            operation_name="turn_on"
+        )) == 1)
+
+        self.assertTrue(len(self.lamp_x_plugin.retrieve_connections(
+            remote_identifier=self.smart_home1.identifier,
+            operation_name="turn_off"
+        )) == 1)
+
+        await self.smart_home1.graceless_close_connection(self.lamp_x_plugin.identifier, "turn_on")
+
+        await asyncio.sleep(2)
+
+        self.assertTrue(len(self.smart_home1.retrieve_connections(
+            remote_identifier=self.lamp_x_plugin.identifier,
+            operation_name="turn_on"
+        )) == 0)
+
+        # await self.lamp_x_plugin.graceless_close_connection(self.smart_home1.identifier, "turn_off")
+        #
+        # await asyncio.sleep(2)
+        #
+        # self.assertTrue(len(self.smart_home1.retrieve_connections(
+        #     remote_identifier=self.lamp_x_plugin.identifier,
+        #     operation_name="turn_off"
+        # )) == 0)
 
     async def test_get_status(self):
         self.assertFalse(self.smart_home1.is_compliance())

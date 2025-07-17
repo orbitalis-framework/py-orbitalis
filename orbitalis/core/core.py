@@ -50,6 +50,21 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
         TODO: doc
         """
 
+    @override
+    async def _on_close_connection(self, connection: Connection):
+        topics: List[str] = [
+            connection.incoming_close_connection_topic,
+            connection.close_connection_to_remote_topic,
+        ]
+
+        if connection.input_topic is not None:
+            topics.append(connection.input_topic)
+
+        if connection.output_topic is not None:
+            topics.append(connection.output_topic)
+
+        await self.eventbus_client.multi_unsubscribe(topics, parallelize=self.parallelize)
+
     def constraint_for_operation(self, operation_name: str) -> Constraint:
 
         if operation_name not in self.needed_operations.keys():
@@ -186,6 +201,10 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
         if len(operations_to_request) > 0:
             logging.debug(f"{self}: operations to request: {operations_to_request}")
 
+            self.related_topics[event.payload.plugin_identifier].add(topic)
+            self.related_topics[event.payload.plugin_identifier].add(event.payload.reply_topic)
+            self.related_topics[event.payload.plugin_identifier].add(response_topic)
+
             await self.eventbus_client.subscribe(
                 topic=response_topic,
                 handler=self.response_event_handler
@@ -205,7 +224,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                     offered_operation.operation_name
                 )
 
-                self.add_pending_request(event.payload.plugin_identifier, offered_operation.operation_name, PendingRequest(
+                self._add_pending_request(event.payload.plugin_identifier, offered_operation.operation_name, PendingRequest(
                     operation_name=offered_operation.operation_name,
                     remote_identifier=event.payload.plugin_identifier,
                     output_topic=output_topic,
@@ -213,10 +232,6 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                     input=offered_operation.input,
                     incoming_close_connection_topic=incoming_close_connection_topic
                 ))
-
-                self.related_topics[event.payload.plugin_identifier].add(topic)
-                self.related_topics[event.payload.plugin_identifier].add(event.payload.reply_topic)
-                self.related_topics[event.payload.plugin_identifier].add(response_topic)
 
                 requested_operations[offered_operation.operation_name] = RequestedOperation(
                     name=offered_operation.operation_name,
@@ -239,7 +254,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                 logging.error(f"{self}: {e}")
 
                 for operation_name, result_topic in requested_operations.items():
-                    self.remove_pending_request(event.payload.plugin_identifier, operation_name)
+                    self._remove_pending_request(event.payload.plugin_identifier, operation_name)
 
                 if self.raise_exceptions:
                     raise e
@@ -275,7 +290,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
                 await self.eventbus_client.subscribe(
                     self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].incoming_close_connection_topic,
-                    self.close_connection_event_handler
+                    self._close_connection_event_handler
                 )
 
                 if self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output is not None:
@@ -321,12 +336,6 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
     @override
     async def _internal_stop(self, *args, **kwargs):
         await super()._internal_stop(*args, **kwargs)
-
-        topics: List[str] = [
-            self.discover_topic,
-        ]
-
-        await self.eventbus_client.multi_unsubscribe(topics, parallelize=self.parallelize)
 
 
     def __check_compatibility_connection_payload(self, connection: Connection, payload: Optional[AvroEventPayload], undefined_is_compatible: bool) -> bool:
