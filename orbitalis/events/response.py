@@ -6,20 +6,12 @@ from dataclasses_avroschema import AvroModel
 
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
-
-@dataclass(kw_only=True)
-class ConfirmedOperation(AvroModel):
-    name: str
-    input_topic: Optional[str]
-    plugin_close_connection_topic: str
-
-    # TODO
-    # core_keepalive_topic: str
+from orbitalis.orbiter.schemaspec import Input
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 @registry
-class ResponseMessage(AvroEventPayload):
+class ConfirmConnectionMessage(AvroEventPayload):
     """
 
     TODO
@@ -28,5 +20,20 @@ class ResponseMessage(AvroEventPayload):
     """
 
     plugin_identifier: str
-    confirmed_operations: Dict[str, ConfirmedOperation]     # operation_name => ConfirmedOperation
-    operations_no_longer_available: List[str]
+
+    operation_name: str
+    operation_input_topic: Optional[str]
+    plugin_side_close_operation_connection_topic: str
+
+
+@dataclass(frozen=True, kw_only=True)
+@registry
+class OperationNoLongerAvailableMessage(AvroEventPayload):
+    """
+    TODO
+
+    Author: Nicola Ricciardi
+    """
+
+    plugin_identifier: str
+    operation_name: str

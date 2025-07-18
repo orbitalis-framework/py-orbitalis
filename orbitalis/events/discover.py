@@ -23,4 +23,6 @@ class DiscoverMessage(AvroEventPayload):
 
     core_identifier: str
     offer_topic: str
+    core_keepalive_topic: str
+    core_keepalive_request_topic: str
     needed_operations: Dict[str, Constraint]   # operation_name => Need

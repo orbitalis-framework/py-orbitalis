@@ -29,10 +29,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.lamp_x_plugin = LampXPlugin(
             identifier="lamp_x_plugin",
-            eventbus_client=LocalPubTopicSubClientBuilder()\
-                    .with_default_publisher()\
-                    .with_closure_subscriber(lambda t, e: ...)\
-                    .build(),
+            eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
 
             kwh=24      # LampPlugin-specific attribute
@@ -49,10 +46,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.smart_home1 = SmartHomeCore(
             identifier="smart_home1",
-            eventbus_client=LocalPubTopicSubClientBuilder() \
-                .with_default_publisher() \
-                .with_closure_subscriber(lambda t, e: ...) \
-                .build(),
+            eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
             needed_operations={
                 "turn_on": Need(Constraint(
@@ -80,10 +74,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.smart_home2 = SmartHomeCore(
             identifier="smart_home2",
-            eventbus_client=LocalPubTopicSubClientBuilder() \
-                .with_default_publisher() \
-                .with_closure_subscriber(lambda t, e: ...) \
-                .build(),
+            eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
             needed_operations={
                 "turn_on": Need(Constraint(
@@ -99,8 +90,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-
-    async def test_double_handshake(self):
+    async def test_simple_handshake(self):
         self.assertFalse(self.smart_home1.is_compliance())
 
         await self.lamp_x_plugin.start()
@@ -109,6 +99,9 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(2)
 
         self.assertTrue(self.smart_home1.is_compliance())
+
+    async def test_double_handshake(self):
+        await self.test_simple_handshake()
 
         self.assertFalse(self.smart_home2.is_compliance())
 
@@ -126,7 +119,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         await self.lamp_x_plugin.start()
         await self.smart_home1.start()
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         self.assertTrue(self.smart_home1.is_compliance())
 
@@ -152,7 +145,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await self.smart_home1.execute("turn_on", plugin_identifier=self.lamp_x_plugin.identifier)
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         self.assertTrue(self.lamp_x_plugin.is_on)
 
@@ -161,7 +154,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await self.smart_home1.graceless_close_connection(self.lamp_x_plugin.identifier, "turn_on")
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         self.assertTrue(len(self.smart_home1.retrieve_connections(
             remote_identifier=self.lamp_x_plugin.identifier,
@@ -172,7 +165,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await self.lamp_x_plugin.graceless_close_connection(self.smart_home1.identifier, "turn_off")
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         self.assertTrue(len(self.smart_home1.retrieve_connections(
             remote_identifier=self.lamp_x_plugin.identifier,
@@ -188,7 +181,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await self.smart_home1.execute("turn_on", plugin_identifier=self.lamp_x_plugin.identifier)
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         self.assertTrue(self.lamp_x_plugin.is_off)
 
@@ -196,7 +189,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await self.smart_home1.send_discover_based_on_needs()
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         self.assertTrue(self.smart_home1.is_compliance())
 
@@ -207,7 +200,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             "turn_on"
         )
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         self.assertFalse(self.smart_home1.is_compliance())
 
@@ -218,11 +211,11 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         await self.lamp_x_plugin.start()
         await self.smart_home1.start()
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         await self.smart_home1.execute("get_status", plugin_identifier=self.lamp_x_plugin.identifier)
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
         self.assertTrue(self.lamp_x_plugin.identifier in self.smart_home1.lamp_status)
 

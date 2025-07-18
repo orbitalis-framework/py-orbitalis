@@ -8,7 +8,7 @@ from typing import Optional, Dict, Awaitable, Callable, List, Type, Self, Any
 from busline.client.subscriber.topic_subscriber.event_handler import event_handler
 from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
 from busline.event.event import Event
-from orbitalis.orbiter.schemaspec import SchemaSpec, InputsOutputs, Input, Output, InputOutput
+from orbitalis.orbiter.schemaspec import SchemaSpec, Inputs, Outputs, Input, Output
 from orbitalis.utils.allowblocklist import AllowBlockListMixin
 
 
@@ -22,17 +22,21 @@ class Policy(AllowBlockListMixin):
 
 
 @dataclass(kw_only=True)
-class Operation(InputOutput):
+class Operation:
     name: str
     handler: EventHandler
     policy: Policy
+    input: Input
+    output: Output
 
 
 @dataclass(kw_only=True)
-class _OperationDescriptor(InputOutput):
+class _OperationDescriptor:
     operation_name: str
     func: Any
     policy: Policy
+    input: Input
+    output: Output
 
     def __post_init__(self):
         self.func = event_handler(self.func)

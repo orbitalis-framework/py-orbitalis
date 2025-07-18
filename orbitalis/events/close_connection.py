@@ -13,7 +13,7 @@ from orbitalis.utils.allowblocklist import AllowBlockListMixin
 D = TypeVar('D', bound=AvroModel)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 @registry
 class GracelessCloneConnectionMessage(AvroEventPayload, Generic[D]):
     """
@@ -24,12 +24,12 @@ class GracelessCloneConnectionMessage(AvroEventPayload, Generic[D]):
     Author: Nicola Ricciardi
     """
 
-    remote_identifier: str
+    from_identifier: str
     operation_name: str
     data: Optional[D]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 @registry
 class GracefulCloneConnectionMessage(AvroEventPayload, Generic[D]):
     """
@@ -40,13 +40,13 @@ class GracefulCloneConnectionMessage(AvroEventPayload, Generic[D]):
     Author: Nicola Ricciardi
     """
 
-    remote_identifier: str
+    from_identifier: str
     operation_name: str
     ack_topic: str
     data: Optional[D]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 @registry
 class CloseConnectionAckMessage(AvroEventPayload, Generic[D]):
     """
@@ -57,6 +57,6 @@ class CloseConnectionAckMessage(AvroEventPayload, Generic[D]):
     Author: Nicola Ricciardi
     """
 
-    remote_identifier: str
+    from_identifier: str
     operation_name: str
 

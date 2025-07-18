@@ -7,23 +7,11 @@ from dataclasses_avroschema import AvroModel
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
 from orbitalis.core.descriptor import CoreDescriptor
-from orbitalis.core.need import SetupData
 
 
-@dataclass(kw_only=True)
-class RequestedOperation(Generic[SetupData], AvroModel):
-    name: str
-    output_topic: Optional[str]
-    setup_data: Optional[SetupData]
-    core_close_connection_topic: str
-
-    # TODO
-    # core_keepalive_topic: str
-
-
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 @registry
-class RequestMessage(AvroEventPayload, Generic[SetupData]):
+class RequestOperationMessage(AvroEventPayload):
     """
     Core --- request ---> Plugin
 
@@ -33,19 +21,16 @@ class RequestMessage(AvroEventPayload, Generic[SetupData]):
     """
 
     core_identifier: str
-
-    requested_operations: Dict[str, RequestedOperation[SetupData]]  # operation_name => RequestedOperation
-    response_topic: Optional[str] = field(default=None)
-    setup_data: Optional[SetupData] = field(default=None)
-
-    def __post_init__(self):
-        if len(self.requested_operations) == 0:
-            raise ValueError("requested operations missed")
+    operation_name: str
+    response_topic: str
+    output_topic: Optional[str]
+    core_side_close_operation_connection_topic: str
+    setup_data: Optional[str]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 @registry
-class RejectMessage(AvroEventPayload):
+class RejectOperationMessage(AvroEventPayload):
     """
     Core --- reject ---> Plugin
 
@@ -55,9 +40,5 @@ class RejectMessage(AvroEventPayload):
     """
 
     core_identifier: str
-    rejected_operations: List[str]
+    operation_name: str
     description: Optional[str] = field(default=None)
-
-    def __post_init__(self):
-        if len(self.rejected_operations) == 0:
-            raise ValueError("rejected operations missed")

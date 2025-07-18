@@ -136,11 +136,6 @@ class Output(SchemaSpec):
         return super().is_compatible(other, undefined_is_compatible=undefined_is_compatible)
 
 
-@dataclass
-class InputOutput:
-    input: Input
-    output: Output
-
 @dataclass(kw_only=True)
 class Inputs:
     inputs: List[Input]
@@ -169,7 +164,3 @@ class Outputs:
                 continue
 
         return found
-
-@dataclass(kw_only=True)
-class InputsOutputs(Inputs, Outputs):
-    pass

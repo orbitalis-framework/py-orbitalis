@@ -4,12 +4,12 @@ from typing import Optional, Set, Dict, List, Any, TypeVar, Generic, Self
 from dataclasses_avroschema import AvroModel
 
 from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
-from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output, InputsOutputs
+from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output, Inputs, Outputs
 from orbitalis.utils.allowblocklist import AllowBlockListMixin
 
 
 @dataclass(kw_only=True)
-class Constraint(AllowBlockListMixin, InputsOutputs):
+class Constraint(AllowBlockListMixin, Inputs, Outputs):
     """
     min: minimum number (mandatory excluded)
     max: maximum number (mandatory excluded)
@@ -35,14 +35,11 @@ class Constraint(AllowBlockListMixin, InputsOutputs):
             raise ValueError("Missed outputs")
 
 
-SetupData = TypeVar('SetupData', bound=AvroModel)
-
-
-@dataclass()
-class Need(Generic[SetupData]):
+@dataclass
+class Need:
     constraint: Constraint
-    override_sink: Optional[EventHandler] = field(default=None)
-    setup_data: Optional[SetupData] = field(default=None, kw_only=True)
+    override_sink: Optional[EventHandler] = field(default=None, kw_only=True)
+    default_setup_data: Optional[str] = field(default=None, kw_only=True)
 
     @property
     def has_override_sink(self) -> bool:

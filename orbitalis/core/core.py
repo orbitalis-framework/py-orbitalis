@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import random
 from abc import abstractmethod, ABC
@@ -16,9 +17,9 @@ from orbitalis.core.state import CoreState
 from orbitalis.events.close_connection import GracefulCloneConnectionMessage, GracelessCloneConnectionMessage
 from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
-from orbitalis.events.reply import RequestMessage, RejectMessage, RequestedOperation
-from orbitalis.events.response import ResponseMessage
 from orbitalis.core.need import Constraint, Need
+from orbitalis.events.reply import RequestOperationMessage, RejectOperationMessage
+from orbitalis.events.response import ConfirmConnectionMessage, OperationNoLongerAvailableMessage
 from orbitalis.orbiter.connection import Connection
 from orbitalis.orbiter.orbiter import Orbiter
 from orbitalis.orbiter.pending_request import PendingRequest
@@ -35,6 +36,43 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
         super().__post_init__()
 
         self.state = CoreState.CREATED
+
+    @classmethod
+    def _is_plugin_operation_needed_by_need(cls, need: Constraint) -> bool:
+        return need.minimum > 0 \
+            or (need.mandatory is not None and len(need.mandatory) > 0) \
+            or (need.maximum is None or need.maximum > 0)
+
+    @property
+    def offer_topic(self) -> str:
+        return f"$handshake.{self.identifier}.offer"
+
+    @property
+    def response_topic(self) -> str:
+        return f"$handshake.{self.identifier}.response"
+
+
+    @override
+    async def _internal_start(self, *args, **kwargs):
+        await super()._internal_start(*args, **kwargs)
+
+        await self.eventbus_client.subscribe(
+                topic=self.response_topic,
+                handler=self._response_event_handler
+            )
+
+        await self.eventbus_client.subscribe(
+                topic=self.offer_topic,
+                handler=self._offer_event_handler
+            )
+
+        self.update_compliance()
+
+        await self.send_discover_based_on_needs()
+
+    @override
+    async def _internal_stop(self, *args, **kwargs):
+        await super()._internal_stop(*args, **kwargs)
 
     def _on_compliance(self):
         """
@@ -57,10 +95,10 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
             connection.incoming_close_connection_topic,
         ]
 
-        if connection.output_topic is not None:
+        if connection.output_topic is not None and connection.output.has_output:
             topics.append(connection.output_topic)
 
-        await self.eventbus_client.multi_unsubscribe(topics, parallelize=self.parallelize)
+        await self.eventbus_client.multi_unsubscribe(topics, parallelize=True)
 
     def constraint_for_operation(self, operation_name: str) -> Constraint:
 
@@ -111,15 +149,6 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
             # TODO: self._on_not_compliance()
 
 
-    def build_offer_topic(self) -> str:
-        return f"$handshake.{self.identifier}.offer.{uuid4()}"
-
-    @classmethod
-    def _is_plugin_operation_needed_by_need(cls, need: Constraint) -> bool:
-        return need.minimum > 0 \
-            or (need.mandatory is not None and len(need.mandatory) > 0) \
-            or (need.maximum is None or need.maximum > 0)
-
     def operation_to_discover(self) -> Dict[str, Constraint]:
         needed_operations: Dict[str, Constraint] = {}
         for operation_name in self.needed_operations.keys():
@@ -137,14 +166,12 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
     async def send_discover_for_operations(self, needed_operations: Dict[str, Constraint]):
 
-        offer_topic = self.build_offer_topic()
-
         if len(needed_operations) == 0:
             return
 
         await self.eventbus_client.subscribe(
-            topic=offer_topic,
-            handler=self.offer_event_handler
+            topic=self.offer_topic,
+            handler=self._offer_event_handler
         )
 
         await self.eventbus_client.publish(
@@ -152,7 +179,9 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
             DiscoverMessage(
                 core_identifier=self.identifier,
                 needed_operations=needed_operations,
-                offer_topic=offer_topic
+                offer_topic=self.offer_topic,
+                core_keepalive_topic=self.keepalive_topic,
+                core_keepalive_request_topic=self.keepalive_request_topic
             ).into_event()
         )
 
@@ -164,7 +193,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
     def is_plugin_operation_needed_and_pluggable(self, plugin_identifier: str, offered_operation: OfferedOperation) -> bool:
 
-        not_satisfied_need = self.constraint_for_operation(offered_operation.operation_name)
+        not_satisfied_need = self.constraint_for_operation(offered_operation.name)
 
         if not Core._is_plugin_operation_needed_by_need(not_satisfied_need):
             return False
@@ -180,165 +209,194 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
         return True
 
-    def build_response_topic(self, plugin_identifier: str) -> str:
-        return f"$handshake.{self.identifier}.{plugin_identifier}.response.{uuid4()}"
-
     def build_operation_output_topic(self, plugin_identifier: str, operation_name: str) -> str:
-        return f"{operation_name}.{self.identifier}.{plugin_identifier}.output.{uuid4()}"
+        return f"{operation_name}.{self.identifier}.{plugin_identifier}.output"
+
+    async def _get_setup_data(self, plugin_identifier: str, offered_operation: OfferedOperation) -> Optional[str]:
+        """
+        TODO: doc
+        """
+
+        return self.needed_operations[offered_operation.name].default_setup_data
+
+    async def _request_operation(self, plugin_identifier: str, reply_topic: str, offered_operation: OfferedOperation):
+
+        logging.debug(f"{self}: operations to request: {offered_operation}")
+
+        if not self.needed_operations[offered_operation.name].constraint.output_is_compatible(offered_operation.output):
+            return  # invalid offer
+
+        output_topic: Optional[str] = None
+
+        if offered_operation.output.has_output:
+            output_topic = self.build_operation_output_topic(plugin_identifier, offered_operation.name)
+
+
+        setup_data = await self._get_setup_data(plugin_identifier, offered_operation)
+
+        incoming_close_connection_topic: str = self.build_incoming_close_connection_topic(
+            plugin_identifier,
+            offered_operation.name
+        )
+
+        self._add_pending_request(PendingRequest(
+            operation_name=offered_operation.name,
+            remote_identifier=plugin_identifier,
+            output_topic=output_topic,
+            output=offered_operation.output,
+            input=offered_operation.input,
+            incoming_close_connection_topic=incoming_close_connection_topic
+        ))
+
+        await self.eventbus_client.publish(
+            reply_topic,
+            RequestOperationMessage(
+                core_identifier=self.identifier,
+                operation_name=offered_operation.name,
+                response_topic=self.response_topic,
+                output_topic=output_topic,
+                core_side_close_operation_connection_topic=incoming_close_connection_topic,
+                setup_data=setup_data
+            ).into_event()
+        )
+
+
+    async def _reject_operation(self, plugin_identifier: str, reply_topic: str, offered_operation: OfferedOperation):
+        await self.eventbus_client.publish(
+            reply_topic,
+            RejectOperationMessage(
+                core_identifier=self.identifier,
+                operation_name=offered_operation.name
+            ).into_event()
+        )
 
     @event_handler
-    async def offer_event_handler(self, topic: str, event: Event[OfferMessage]):
-        logging.debug(f"{self}: new offer: {topic} -> {event}")
+    async def _offer_event_handler(self, topic: str, event: Event[OfferMessage]):
+        logging.info(f"{self}: new offer: {topic} -> {event}")
 
-        operations_to_request: List[OfferedOperation] = []
-        operations_to_reject: List[OfferedOperation] = []
+        self.update_acquaintances(
+            event.payload.plugin_identifier,
+            keepalive_topic=event.payload.plugin_keepalive_topic,
+            keepalive_request_topic=event.payload.plugin_keepalive_request_topic
+        )
+
+        self.have_seen(event.payload.plugin_identifier)
+
+        tasks = []
         for offered_operation in event.payload.offered_operations:
             if self.is_plugin_operation_needed_and_pluggable(event.payload.plugin_identifier, offered_operation):
-                operations_to_request.append(offered_operation)
-            else:
-                operations_to_reject.append(offered_operation)
-
-
-        response_topic: str = self.build_response_topic(event.payload.plugin_identifier)
-
-        if len(operations_to_request) > 0:
-            logging.debug(f"{self}: operations to request: {operations_to_request}")
-
-            self.related_subscribed_topics[event.payload.plugin_identifier].add(topic)
-            self.related_subscribed_topics[event.payload.plugin_identifier].add(response_topic)
-
-            await self.eventbus_client.subscribe(
-                topic=response_topic,
-                handler=self.response_event_handler
-            )
-
-            requested_operations: Dict[str, RequestedOperation] = {}
-            for offered_operation in operations_to_request:
-
-                if not self.needed_operations[offered_operation.operation_name].constraint.output_is_compatible(offered_operation.output):
-                    continue    # invalid offer
-
-                output = offered_operation.output
-                output_topic = self.build_operation_output_topic(event.payload.plugin_identifier, offered_operation.operation_name)
-
-                incoming_close_connection_topic: str = self.build_incoming_close_connection_topic(
+                tasks.append(asyncio.create_task(self._request_operation(
                     event.payload.plugin_identifier,
-                    offered_operation.operation_name
-                )
+                    event.payload.reply_topic,
+                    offered_operation
+                )))
+            else:
+                tasks.append(asyncio.create_task(self._reject_operation(
+                    event.payload.plugin_identifier,
+                    event.payload.reply_topic,
+                    offered_operation
+                )))
 
-                self._add_pending_request(event.payload.plugin_identifier, offered_operation.operation_name, PendingRequest(
-                    operation_name=offered_operation.operation_name,
-                    remote_identifier=event.payload.plugin_identifier,
-                    output_topic=output_topic,
-                    output=output,
-                    input=offered_operation.input,
-                    incoming_close_connection_topic=incoming_close_connection_topic
-                ))
+        try:
+            await asyncio.gather(*tasks)
 
-                requested_operations[offered_operation.operation_name] = RequestedOperation(
-                    name=offered_operation.operation_name,
-                    output_topic=output_topic,
-                    setup_data=self.needed_operations[offered_operation.operation_name].setup_data,
-                    core_close_connection_topic=incoming_close_connection_topic
-                )
+        except Exception as e:
+            logging.error(f"{self}: {repr(e)}")
 
-            try:
-                await self.eventbus_client.publish(
-                    topic=event.payload.reply_topic,
-                    event=RequestMessage(
-                        core_identifier=self.identifier,
-                        response_topic=response_topic,
-                        requested_operations=requested_operations
-                    ).into_event()
-                )
-
-            except Exception as e:
-                logging.error(f"{self}: {e}")
-
-                for operation_name, result_topic in requested_operations.items():
-                    self._remove_pending_request(event.payload.plugin_identifier, operation_name)
-
-                if self.raise_exceptions:
-                    raise e
+            if self.raise_exceptions:
+                raise e
 
 
-        if len(operations_to_reject) > 0:
-            logging.debug(f"{self}: operations to reject: {operations_to_reject}")
+    async def _confirm_connection_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage]):
+        plugin_identifier = event.payload.plugin_identifier
+        operation_name = event.payload.operation_name
 
-            await self.eventbus_client.publish(
-                topic=event.payload.reply_topic,
-                event=RejectMessage(
-                    core_identifier=self.identifier,
-                    description="Not needed anymore, sorry",
-                    rejected_operations=[offered_operation.operation_name for offered_operation in operations_to_reject],
-                ).into_event()
-            )
+        if not self.is_pending(plugin_identifier, operation_name):
+            logging.warning(f"{self}: operation {operation_name} from plugin {plugin_identifier} was not requested")
+            return
 
+        pending_request = self.pending_requests_by_remote_identifier(plugin_identifier)[operation_name]
 
-    @event_handler
-    async def response_event_handler(self, topic: str, event: Event[ResponseMessage]):
-        # TODO: subscribe to keepalive topic and close topics
+        async with pending_request.lock:
+            if not self.is_pending(plugin_identifier, operation_name):
+                logging.warning(f"{self}: pending request ({plugin_identifier}, {operation_name}) not available anymore")
+                return
 
-        logging.debug(f"{self}: new response: {topic} -> {event}")
-
-        for borrowed_operation_name, confirmed_operation in event.payload.confirmed_operations.items():
-
-            if event.payload.plugin_identifier not in self.pending_requests \
-                or borrowed_operation_name not in self.pending_requests_by_remote_identifier(event.payload.plugin_identifier):
-                logging.warning(f"{self}: operation {borrowed_operation_name} from plugin {event.payload.plugin_identifier} was not requested")
-                continue
-
+            topics_to_unsubscribe_if_error: List[str] = []
             try:
 
                 await self.eventbus_client.subscribe(
-                    self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].incoming_close_connection_topic,
+                    pending_request.incoming_close_connection_topic,
                     self._close_connection_event_handler
                 )
 
-                if self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output.has_output:
-
-                    handler: Optional[EventHandler] = None
-                    if borrowed_operation_name in self.operation_sink:
-                        handler = self.operation_sink[borrowed_operation_name]
-
-                    if self.needed_operations[borrowed_operation_name].has_override_sink:
-                        handler = self.needed_operations[borrowed_operation_name].override_sink
-
-                    if handler is not None:
-                        await self.eventbus_client.subscribe(
-                            self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic,
-                            handler
-                        )
-
-                else:
-                    self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic = None
-                    self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output = None
-
-                self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].input_topic = confirmed_operation.input_topic
-                self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].close_connection_to_remote_topic = confirmed_operation.plugin_close_connection_topic
-
-                await self.promote_pending_request_to_connection(event.payload.plugin_identifier, borrowed_operation_name)
+                topics_to_unsubscribe_if_error.append(pending_request.incoming_close_connection_topic)
 
             except Exception as e:
-                logging.error(f"{self}: {e}")
-
-                await self.eventbus_client.unsubscribe(self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].output_topic)
-                await self.eventbus_client.unsubscribe(self.pending_requests_by_remote_identifier(event.payload.plugin_identifier)[borrowed_operation_name].incoming_close_connection_topic)
+                logging.error(f"{self}: error during subscribing on close connection in response handling: {repr(e)}")
 
                 if self.raise_exceptions:
                     raise e
 
-    @override
-    async def _internal_start(self, *args, **kwargs):
-        await super()._internal_start(*args, **kwargs)
+            if pending_request.output_topic is not None:        # output is excepted
+                handler: Optional[EventHandler] = None
+                if operation_name in self.operation_sink:
+                    handler = self.operation_sink[operation_name]
 
-        self.update_compliance()
+                if self.needed_operations[operation_name].has_override_sink:
+                    handler = self.needed_operations[operation_name].override_sink
 
-        await self.send_discover_based_on_needs()
+                if handler is not None:
+                    try:
+                        await self.eventbus_client.subscribe(
+                            pending_request.output_topic,
+                            handler
+                        )
 
-    @override
-    async def _internal_stop(self, *args, **kwargs):
-        await super()._internal_stop(*args, **kwargs)
+                        topics_to_unsubscribe_if_error.append(pending_request.output_topic)
+
+                    except Exception as e:
+                        logging.error(
+                            f"{self}: error during subscribing to '{pending_request.output_topic}' in response handling: {repr(e)}")
+
+                        await self.eventbus_client.unsubscribe(pending_request.incoming_close_connection_topic)
+
+                        if self.raise_exceptions:
+                            raise e
+
+            pending_request.input_topic = event.payload.operation_input_topic
+            pending_request.close_connection_to_remote_topic = event.payload.plugin_side_close_operation_connection_topic
+
+            try:
+                await self.promote_pending_request_to_connection(pending_request)
+
+            except Exception as e:
+                logging.error(f"{self}: error during pending request promoting in response handling: {repr(e)}")
+
+                await self.eventbus_client.multi_unsubscribe(topics_to_unsubscribe_if_error, parallelize=True)
+
+                if self.raise_exceptions:
+                    raise e
+
+    async def _operation_no_longer_available_event_handler(self, topic: str, event: Event[OperationNoLongerAvailableMessage]):
+        self._remove_pending_request(
+            event.payload.plugin_identifier,
+            event.payload.operation_name
+        )
+
+    @event_handler
+    async def _response_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage | OperationNoLongerAvailableMessage]):
+
+        logging.info(f"{self}: new response: {topic} -> {event}")
+
+        if isinstance(event.payload, ConfirmConnectionMessage):
+            await self._confirm_connection_event_handler(topic, event)
+
+        elif isinstance(event.payload, OperationNoLongerAvailableMessage):
+            await self._operation_no_longer_available_event_handler(topic, event)
+
+        else:
+            raise ValueError("Unexpected reply payload")
 
 
     def __check_compatibility_connection_payload(self, connection: Connection, payload: Optional[AvroEventPayload], undefined_is_compatible: bool) -> bool:

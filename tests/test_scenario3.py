@@ -27,10 +27,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.lamp_x_plugin = LampXPlugin(
             identifier="lamp_x_plugin",
-            eventbus_client=LocalPubTopicSubClientBuilder()\
-                    .with_default_publisher()\
-                    .with_closure_subscriber(lambda t, e: ...)\
-                    .build(),
+            eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
 
             kwh=24      # LampPlugin-specific attribute
@@ -42,10 +39,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.lamp_y_plugin = LampYPlugin(
             identifier="lamp_y_plugin",
-            eventbus_client=LocalPubTopicSubClientBuilder() \
-                .with_default_publisher() \
-                .with_closure_subscriber(lambda t, e: ...) \
-                .build(),
+            eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
 
             kwh=42
@@ -57,10 +51,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.smart_home1 = SmartHomeCore(
             identifier="smart_home1",
-            eventbus_client=LocalPubTopicSubClientBuilder() \
-                .with_default_publisher() \
-                .with_closure_subscriber(lambda t, e: ...) \
-                .build(),
+            eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
             needed_operations={
                 "turn_on": Need(

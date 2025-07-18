@@ -5,12 +5,14 @@ from dataclasses_avroschema import AvroModel
 
 from busline.event.registry import registry
 from busline.event.avro_payload import AvroEventPayload
-from orbitalis.orbiter.schemaspec import InputOutput
+from orbitalis.orbiter.schemaspec import Input, Output
 
 
 @dataclass
-class OfferedOperation(InputOutput, AvroModel):
-    operation_name: str
+class OfferedOperation(AvroModel):
+    name: str
+    input: Input
+    output: Output
 
 @dataclass(frozen=True)
 @registry
@@ -25,3 +27,5 @@ class OfferMessage(AvroEventPayload):
     plugin_identifier: str
     offered_operations: List[OfferedOperation]
     reply_topic: str
+    plugin_keepalive_topic: str
+    plugin_keepalive_request_topic: str
