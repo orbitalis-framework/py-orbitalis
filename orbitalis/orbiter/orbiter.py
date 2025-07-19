@@ -34,7 +34,6 @@ class Orbiter(ABC):
 
     discover_topic: str = field(default=DEFAULT_DISCOVER_TOPIC)
     raise_exceptions: bool = field(default=False)
-    undefined_is_compatible: bool = False
 
     remote_keepalive_request_topics: Dict[str, str] = field(default_factory=dict, init=False)   # remote_identifier => keepalive_request_topic
     remote_keepalive_topics: Dict[str, str] = field(default_factory=dict, init=False)   # remote_identifier => keepalive_topic
@@ -150,6 +149,9 @@ class Orbiter(ABC):
 
         self.last_seen[remote_identifier] = when
 
+    def clear_last_seen(self):
+        self.last_seen = dict()
+
     async def _on_keepalive_request(self, from_identifier: str):
         """
         TODO: doc
@@ -161,7 +163,7 @@ class Orbiter(ABC):
 
         await self.eventbus_client.publish(
             event.payload.keepalive_topic,
-            KeepaliveMessage(self.identifier).into_event()
+            KeepaliveMessage(from_identifier=self.identifier).into_event()
         )
 
     async def _on_keepalive(self, from_identifier: str):
@@ -174,6 +176,37 @@ class Orbiter(ABC):
         await self._on_keepalive(event.payload.from_identifier)
 
         self.last_seen[event.payload.from_identifier] = datetime.now()
+
+    async def send_keepalive(self, *, keepalive_topic: Optional[str] = None, remote_identifier: Optional[str] = None):
+
+        if keepalive_topic is None and remote_identifier is None:
+            raise ValueError("Missed target")
+
+        if remote_identifier is not None:
+            keepalive_topic = self.remote_keepalive_topics[remote_identifier]
+
+        await self.eventbus_client.publish(
+            keepalive_topic,
+            KeepaliveMessage(
+                from_identifier=self.identifier
+            ).into_event()
+        )
+
+    async def send_keepalive_request(self, *, keepalive_request_topic: Optional[str] = None, remote_identifier: Optional[str] = None):
+
+        if keepalive_request_topic is None and remote_identifier is None:
+            raise ValueError("Missed target")
+
+        if remote_identifier is not None:
+            keepalive_request_topic = self.remote_keepalive_request_topics[remote_identifier]
+
+        await self.eventbus_client.publish(
+            keepalive_request_topic,
+            KeepaliveRequestMessage(
+                from_identifier=self.identifier,
+                keepalive_topic=self.keepalive_topic
+            ).into_event()
+        )
 
     def build_incoming_close_connection_topic(self, remote_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{self.identifier}.{remote_identifier}.close.{uuid.uuid4()}"
@@ -216,6 +249,8 @@ class Orbiter(ABC):
     async def _close_connection(self, remote_identifier: str, operation_name: str) -> Optional[Connection]:
 
         try:
+            self.have_seen(remote_identifier)
+
             connection = self._remove_connection(
                 remote_identifier,
                 operation_name

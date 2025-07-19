@@ -8,4 +8,5 @@ Distributed micro-kernel library for Python.
 - Offer sempre uguale così che un plugin possa offrire senza discover
 - Touch connection per logiche di scollegamento
 - Reply/Response per singole operation per dare tempo di decidere
+- Lock su pending request e connection
 

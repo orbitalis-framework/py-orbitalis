@@ -19,7 +19,7 @@ class KeepaliveRequestMessage(AvroEventPayload):
     keepalive_topic: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 @registry
 class KeepaliveMessage(AvroEventPayload):
     """

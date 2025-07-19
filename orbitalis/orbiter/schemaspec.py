@@ -41,21 +41,11 @@ class SchemaSpec:
         return cls.from_schema(payload.avro_schema())
 
 
-    def is_compatible(self, other: Self, *, undefined_is_compatible: bool = False) -> bool:
-        if self.support_undefined_schema and other.support_undefined_schema:
-            return True
-
-        if not undefined_is_compatible:
-            if (not self.support_undefined_schema and other.support_undefined_schema) or (self.support_undefined_schema and not other.support_undefined_schema):
-                return False
-        else:
-            if self.support_undefined_schema or other.support_undefined_schema:
-                return True
-
-        if (self.support_empty_schema and not other.support_empty_schema) or (not self.support_empty_schema and other.support_undefined_schema):
+    def is_compatible(self, other: Self) -> bool:
+        if self.support_undefined_schema != other.support_undefined_schema:
             return False
 
-        if (self.has_some_explicit_schemas and not other.has_some_explicit_schemas) or (not self.has_some_explicit_schemas and other.has_some_explicit_schemas):
+        if self.support_empty_schema != other.support_empty_schema:
             return False
 
         if len(self.schemas) != len(other.schemas):
@@ -111,11 +101,11 @@ class Input(SchemaSpec):
         return cls()
 
     @override
-    def is_compatible(self, other: Self, *, undefined_is_compatible: bool = False) -> bool:
+    def is_compatible(self, other: Self) -> bool:
         if int(other.has_input) + int(self.has_input) == 1:
             return False
 
-        return super().is_compatible(other, undefined_is_compatible=undefined_is_compatible)
+        return super().is_compatible(other)
 
 @dataclass(kw_only=True)
 class Output(SchemaSpec):
@@ -129,22 +119,22 @@ class Output(SchemaSpec):
         return cls()
 
     @override
-    def is_compatible(self, other: Self, *, undefined_is_compatible: bool = False) -> bool:
+    def is_compatible(self, other: Self) -> bool:
         if int(other.has_output) + int(self.has_output) == 1:
             return False
 
-        return super().is_compatible(other, undefined_is_compatible=undefined_is_compatible)
+        return super().is_compatible(other)
 
 
 @dataclass(kw_only=True)
 class Inputs:
     inputs: List[Input]
 
-    def input_is_compatible(self, input: Input, *, undefined_is_compatible: bool = False) -> bool:
+    def input_is_compatible(self, input: Input) -> bool:
         found = False
         for my_input in self.inputs:
 
-            if my_input.is_compatible(input, undefined_is_compatible=undefined_is_compatible):
+            if my_input.is_compatible(input):
                 found = True
                 continue
 
@@ -155,11 +145,11 @@ class Inputs:
 class Outputs:
     outputs: List[Output]
 
-    def output_is_compatible(self, output: Output, *, undefined_is_compatible: bool = False) -> bool:
+    def output_is_compatible(self, output: Output) -> bool:
         found = False
         for my_output in self.outputs:
 
-            if my_output.is_compatible(output, undefined_is_compatible=undefined_is_compatible):
+            if my_output.is_compatible(output):
                 found = True
                 continue
 

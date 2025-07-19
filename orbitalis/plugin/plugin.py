@@ -223,6 +223,8 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
     async def _reject_event_handler(self, topic: str, event: Event[RejectOperationMessage]):
         logging.debug(f"{self}: core {event.payload.core_identifier} rejects plug request for this operation: {event.payload.operation_name}")
 
+        self.have_seen(event.payload.core_identifier)
+
         self._remove_pending_request(event.payload.core_identifier, event.payload.operation_name)
 
     async def _setup_operation(self, core_identifier: str, operation_name: str, setup_data: Optional[str]):
@@ -288,6 +290,8 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
 
         core_identifier = event.payload.core_identifier
         operation_name = event.payload.operation_name
+
+        self.have_seen(core_identifier)
 
         logging.debug(f"{self}: core {core_identifier} confirms plug request for this operation: {operation_name}")
 

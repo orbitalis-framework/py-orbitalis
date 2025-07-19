@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, List
@@ -27,6 +28,8 @@ class Connection:
 
     incoming_close_connection_topic: str
     close_connection_to_remote_topic: str
+
+    lock: asyncio.Lock = field(default_factory=lambda: asyncio.Lock(), init=False)
 
     input: Input
     output: Output

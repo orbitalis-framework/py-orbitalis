@@ -262,6 +262,8 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
 
     async def _reject_operation(self, plugin_identifier: str, reply_topic: str, offered_operation: OfferedOperation):
+        self.have_seen(plugin_identifier)
+
         await self.eventbus_client.publish(
             reply_topic,
             RejectOperationMessage(
@@ -310,6 +312,8 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
     async def _confirm_connection_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage]):
         plugin_identifier = event.payload.plugin_identifier
         operation_name = event.payload.operation_name
+
+        self.have_seen(plugin_identifier)
 
         if not self.is_pending(plugin_identifier, operation_name):
             logging.warning(f"{self}: operation {operation_name} from plugin {plugin_identifier} was not requested")
@@ -379,6 +383,8 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                     raise e
 
     async def _operation_no_longer_available_event_handler(self, topic: str, event: Event[OperationNoLongerAvailableMessage]):
+        self.have_seen(event.payload.plugin_identifier)
+
         self._remove_pending_request(
             event.payload.plugin_identifier,
             event.payload.operation_name
@@ -399,7 +405,7 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
             raise ValueError("Unexpected reply payload")
 
 
-    def __check_compatibility_connection_payload(self, connection: Connection, payload: Optional[AvroEventPayload], undefined_is_compatible: bool) -> bool:
+    def __check_compatibility_connection_payload(self, connection: Connection, payload: Optional[AvroEventPayload]) -> bool:
         if not connection.input.has_input:
             return False
 
@@ -409,14 +415,13 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
             else:
                 return False
 
-        if connection.input.is_compatible_with_schema(payload.avro_schema(), undefined_is_compatible=undefined_is_compatible):
+        if connection.input.is_compatible_with_schema(payload.avro_schema()):
             return True
 
         return False
 
     async def execute(self, operation_name: str, payload: Optional[AvroEventPayload] = None,
-        /, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None,
-            undefined_is_compatible: Optional[bool] = None):
+        /, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None):
         """
         Execute the operation by its name.
 
@@ -425,9 +430,6 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
         if int(any) + int(all) + int(plugin_identifier is not None) > 1:
             raise ValueError("You must chose only one between 'any', 'all' or 'plugin_identifier'")
-
-        if undefined_is_compatible is None:
-            undefined_is_compatible = self.undefined_is_compatible
 
         topics: Set[str] = set()
 
@@ -439,12 +441,12 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                 if connection.remote_identifier != plugin_identifier:
                     continue
 
-                if self.__check_compatibility_connection_payload(connection, payload, undefined_is_compatible):
+                if self.__check_compatibility_connection_payload(connection, payload):
                     topics.add(connection.input_topic)
 
         elif all or any:
             for connection in connections:
-                if self.__check_compatibility_connection_payload(connection, payload, undefined_is_compatible):
+                if self.__check_compatibility_connection_payload(connection, payload):
                     topics.add(connection.input_topic)
 
             if any:
