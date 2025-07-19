@@ -182,15 +182,15 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(self.smart_home.is_compliance())
 
-        self.assertTrue(self.lamp_x_plugin.identifier in self.smart_home.last_seen)
+        self.assertTrue(self.lamp_x_plugin.identifier in self.smart_home._last_seen)
 
-        seen1 = self.smart_home.last_seen[self.lamp_x_plugin.identifier]
+        seen1 = self.smart_home._last_seen[self.lamp_x_plugin.identifier]
 
         await self.lamp_x_plugin.send_keepalive(remote_identifier=self.smart_home.identifier)
 
         await asyncio.sleep(1)
 
-        seen2 = self.smart_home.last_seen[self.lamp_x_plugin.identifier]
+        seen2 = self.smart_home._last_seen[self.lamp_x_plugin.identifier]
 
         self.assertGreater(seen2, seen1)
 
@@ -198,6 +198,6 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(1)
 
-        seen3 = self.smart_home.last_seen[self.lamp_x_plugin.identifier]
+        seen3 = self.smart_home._last_seen[self.lamp_x_plugin.identifier]
 
         self.assertGreater(seen3, seen2)

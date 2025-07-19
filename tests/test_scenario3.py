@@ -29,6 +29,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="lamp_x_plugin",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
+            with_loops=False,
 
             kwh=24      # LampPlugin-specific attribute
         )
@@ -41,6 +42,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="lamp_y_plugin",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
+            with_loops=False,
 
             kwh=42
         )
@@ -53,6 +55,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="smart_home1",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
+            with_loops=False,
             needed_operations={
                 "turn_on": Need(
                     Constraint(
@@ -79,9 +82,9 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(2)
 
-        self.assertTrue(self.lamp_x_plugin.identifier in self.smart_home1.connections.keys())
-        self.assertTrue("turn_on" in self.smart_home1.connections[self.lamp_x_plugin.identifier].keys())
-        self.assertTrue("turn_off" in self.smart_home1.connections[self.lamp_x_plugin.identifier].keys())
+        self.assertTrue(self.lamp_x_plugin.identifier in self.smart_home1._connections.keys())
+        self.assertTrue("turn_on" in self.smart_home1._connections[self.lamp_x_plugin.identifier].keys())
+        self.assertTrue("turn_off" in self.smart_home1._connections[self.lamp_x_plugin.identifier].keys())
         self.assertTrue(self.smart_home1.is_compliance(), "Core 'smart_home1' not compliance")
 
         self.lamp_x_plugin.turn_off()

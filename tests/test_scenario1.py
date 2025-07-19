@@ -31,6 +31,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="lamp_x_plugin",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
+            with_loops=False,
 
             kwh=24      # LampPlugin-specific attribute
         ).with_custom_policy(
@@ -48,6 +49,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="smart_home1",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
+            with_loops=False,
             needed_operations={
                 "turn_on": Need(Constraint(
                     mandatory=[self.lamp_x_plugin.identifier],
@@ -76,6 +78,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="smart_home2",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
+            with_loops=False,
             needed_operations={
                 "turn_on": Need(Constraint(
                     mandatory=[self.lamp_x_plugin.identifier],
@@ -99,6 +102,11 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(2)
 
         self.assertTrue(self.smart_home1.is_compliance())
+
+        await asyncio.gather(
+            self.lamp_x_plugin.stop(),
+            self.smart_home1.stop()
+        )
 
     async def test_double_handshake(self):
         await self.test_simple_handshake()

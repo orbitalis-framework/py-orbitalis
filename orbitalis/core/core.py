@@ -8,6 +8,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import override, Dict, Set, Optional, List, Tuple
 from uuid import uuid4
+from xxsubtype import bench
+
 from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler, event_handler
 from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
 from busline.event.avro_payload import AvroEventPayload
@@ -27,7 +29,7 @@ from orbitalis.state_machine.state_machine import StateMachine
 
 
 @dataclass(kw_only=True)
-class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
+class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
     discovering_interval: float = field(default=2)
     needed_operations: Dict[str, Need] = field(default_factory=dict)    # operation_name => Need
@@ -139,14 +141,17 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
         return True
 
     def update_compliance(self):
-        # TODO: evitare di chiamare sempre is_compliance e gli hook
 
-        if self.is_compliance():
-            self.state = CoreState.COMPLIANT
-            # TODO: self._on_compliance()
-        else:
+        before_was_compliance = self.state == CoreState.COMPLIANT
+        now_is_compliance = self.is_compliance()
+
+        if before_was_compliance and not now_is_compliance:
+            self._on_not_compliance()
             self.state = CoreState.NOT_COMPLIANT
-            # TODO: self._on_not_compliance()
+
+        elif not before_was_compliance and now_is_compliance:
+            self._on_compliance()
+            self.state = CoreState.COMPLIANT
 
 
     def operation_to_discover(self) -> Dict[str, Constraint]:
@@ -181,7 +186,8 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
                 needed_operations=needed_operations,
                 offer_topic=self.offer_topic,
                 core_keepalive_topic=self.keepalive_topic,
-                core_keepalive_request_topic=self.keepalive_request_topic
+                core_keepalive_request_topic=self.keepalive_request_topic,
+                considered_dead_after=self.consider_others_dead_after
             ).into_event()
         )
 
@@ -279,10 +285,13 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
         self.update_acquaintances(
             event.payload.plugin_identifier,
             keepalive_topic=event.payload.plugin_keepalive_topic,
-            keepalive_request_topic=event.payload.plugin_keepalive_request_topic
+            keepalive_request_topic=event.payload.plugin_keepalive_request_topic,
+            consider_me_dead_after=event.payload.considered_dead_after
         )
 
         self.have_seen(event.payload.plugin_identifier)
+
+        self._others_considers_me_dead_after[event.payload.plugin_identifier] = event.payload.considered_dead_after
 
         tasks = []
         for offered_operation in event.payload.offered_operations:
@@ -315,14 +324,14 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
 
         self.have_seen(plugin_identifier)
 
-        if not self.is_pending(plugin_identifier, operation_name):
+        if not self._is_pending(plugin_identifier, operation_name):
             logging.warning(f"{self}: operation {operation_name} from plugin {plugin_identifier} was not requested")
             return
 
         pending_request = self.pending_requests_by_remote_identifier(plugin_identifier)[operation_name]
 
         async with pending_request.lock:
-            if not self.is_pending(plugin_identifier, operation_name):
+            if not self._is_pending(plugin_identifier, operation_name):
                 logging.warning(f"{self}: pending request ({plugin_identifier}, {operation_name}) not available anymore")
                 return
 
@@ -462,6 +471,10 @@ class Core(Orbiter, SinksProviderMixin, StateMachine[CoreState]):
     async def sudo_execute(self, topic: str, payload: Optional[AvroEventPayload] = None):
         await self.eventbus_client.publish(topic, payload.into_event() if payload is not None else None)
 
+    @override
+    async def _on_main_loop_iteration(self):
+        self.update_compliance()
+        await self.send_discover_based_on_needs()
 
     def __str__(self):
         return f"Core('{self.identifier}')"

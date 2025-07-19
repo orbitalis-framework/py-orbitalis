@@ -27,5 +27,6 @@ class OfferMessage(AvroEventPayload):
     plugin_identifier: str
     offered_operations: List[OfferedOperation]
     reply_topic: str
+    considered_dead_after: float
     plugin_keepalive_topic: str
     plugin_keepalive_request_topic: str

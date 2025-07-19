@@ -25,7 +25,7 @@ from orbitalis.state_machine.state_machine import StateMachine
 
 
 @dataclass(kw_only=True)
-class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
+class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
     """
 
     TODO: a way to provide dynamic policies for operations
@@ -100,7 +100,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
             return False
 
         # check if already in pending request
-        if core_identifier in self.pending_requests.keys() \
+        if core_identifier in self._pending_requests.keys() \
                 and core_needed_operation_name in self.pending_requests_by_remote_identifier(core_identifier):
             return False
 
@@ -114,7 +114,7 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
             current_reserved_slot_for_operation: int = len(
                 self.retrieve_connections(operation_name=core_needed_operation_name))
 
-            for core_identifier, operations in self.pending_requests.items():
+            for core_identifier, operations in self._pending_requests.items():
                 if core_needed_operation_name in operations.keys():
                     current_reserved_slot_for_operation += 1
 
@@ -141,10 +141,13 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
         self.update_acquaintances(
             event.payload.core_identifier,
             keepalive_topic=event.payload.core_keepalive_topic,
-            keepalive_request_topic=event.payload.core_keepalive_request_topic
+            keepalive_request_topic=event.payload.core_keepalive_request_topic,
+            consider_me_dead_after=event.payload.considered_dead_after
         )
 
         self.have_seen(event.payload.core_identifier)
+
+        self._others_considers_me_dead_after[event.payload.core_identifier] = event.payload.considered_dead_after
 
         offerable_operations: List[str] = []
 
@@ -207,7 +210,8 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
                     offered_operations=offered_operations,
                     reply_topic=self.reply_topic,
                     plugin_keepalive_topic=self.keepalive_topic,
-                    plugin_keepalive_request_topic=self.keepalive_request_topic
+                    plugin_keepalive_request_topic=self.keepalive_request_topic,
+                    considered_dead_after=self.consider_others_dead_after
                 ).into_event()
             )
 
@@ -295,14 +299,14 @@ class Plugin(Orbiter, StateMachine, OperationsProviderMixin, ABC):
 
         logging.debug(f"{self}: core {core_identifier} confirms plug request for this operation: {operation_name}")
 
-        if not self.is_pending(core_identifier, operation_name):
+        if not self._is_pending(core_identifier, operation_name):
             logging.warning(f"{self}: not pending request for ({core_identifier}, {operation_name})")
             return
 
         pending_request = self.pending_requests_by_remote_identifier(core_identifier)[operation_name]
 
         async with pending_request.lock:
-            if not self.is_pending(core_identifier, operation_name):
+            if not self._is_pending(core_identifier, operation_name):
                 logging.warning(f"{self}: pending request ({core_identifier}, {operation_name}) not available anymore")
                 return
 
