@@ -45,7 +45,8 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     def _is_plugin_operation_needed_by_need(cls, need: Constraint) -> bool:
         return need.minimum > 0 \
             or (need.mandatory is not None and len(need.mandatory) > 0) \
-            or (need.maximum is None or need.maximum > 0)
+            or need.maximum is None \
+            or (need.maximum is not None and need.maximum > 0)
 
     @property
     def offer_topic(self) -> str:
@@ -106,7 +107,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         self.update_compliance()
 
-    def constraint_for_operation(self, operation_name: str) -> Constraint:
+    def current_constraint_for_operation(self, operation_name: str) -> Constraint:
 
         if operation_name not in self.needed_operations.keys():
             raise KeyError(f"operation {operation_name} is not required")
@@ -126,7 +127,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         return constraint
 
     def is_compliance_for_operation(self, operation_name: str) -> bool:
-        need = self.constraint_for_operation(operation_name)
+        need = self.current_constraint_for_operation(operation_name)
 
         if need.mandatory is not None and len(need.mandatory) > 0:
             return False
@@ -173,7 +174,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     def operation_to_discover(self) -> Dict[str, Constraint]:
         needed_operations: Dict[str, Constraint] = {}
         for operation_name in self.needed_operations.keys():
-            not_satisfied_need = self.constraint_for_operation(operation_name)
+            not_satisfied_need = self.current_constraint_for_operation(operation_name)
 
             discover_operation = Core._is_plugin_operation_needed_by_need(not_satisfied_need)
 
@@ -185,6 +186,11 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return needed_operations
 
+    async def _on_send_discover(self, discover_message: DiscoverMessage):
+        """
+        TODO: doc
+        """
+
     async def send_discover_for_operations(self, needed_operations: Dict[str, Constraint]):
 
         if len(needed_operations) == 0:
@@ -195,16 +201,20 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             handler=self._offer_event_handler
         )
 
+        discover_message = DiscoverMessage(
+            core_identifier=self.identifier,
+            needed_operations=needed_operations,
+            offer_topic=self.offer_topic,
+            core_keepalive_topic=self.keepalive_topic,
+            core_keepalive_request_topic=self.keepalive_request_topic,
+            considered_dead_after=self.consider_others_dead_after
+        )
+
+        await self._on_send_discover(discover_message)
+
         await self.eventbus_client.publish(
             self.discover_topic,
-            DiscoverMessage(
-                core_identifier=self.identifier,
-                needed_operations=needed_operations,
-                offer_topic=self.offer_topic,
-                core_keepalive_topic=self.keepalive_topic,
-                core_keepalive_request_topic=self.keepalive_request_topic,
-                considered_dead_after=self.consider_others_dead_after
-            ).into_event()
+            discover_message.into_event()
         )
 
         self._last_discover_sent_at = datetime.now()
@@ -217,12 +227,12 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
     def is_plugin_operation_needed_and_pluggable(self, plugin_identifier: str, offered_operation: OfferedOperation) -> bool:
 
-        not_satisfied_need = self.constraint_for_operation(offered_operation.name)
+        not_satisfied_need = self.current_constraint_for_operation(offered_operation.name)
 
         if not Core._is_plugin_operation_needed_by_need(not_satisfied_need):
             return False
 
-        if not not_satisfied_need.is_compliance(plugin_identifier):
+        if not not_satisfied_need.is_compatible(plugin_identifier):
             return False
 
         if not not_satisfied_need.input_is_compatible(offered_operation.input):
@@ -296,9 +306,16 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             ).into_event()
         )
 
+    async def _on_new_offer(self, offer_message: OfferMessage):
+        """
+        TODO: doc
+        """
+
     @event_handler
     async def _offer_event_handler(self, topic: str, event: Event[OfferMessage]):
         logging.info(f"{self}: new offer: {topic} -> {event}")
+
+        await self._on_new_offer(event.payload)
 
         self.update_acquaintances(
             event.payload.plugin_identifier,
@@ -335,8 +352,14 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             if self.raise_exceptions:
                 raise e
 
+    async def _on_confirm_connection(self, confirm_connection_message: ConfirmConnectionMessage):
+        """
+        TODO: doc
+        """
 
     async def _confirm_connection_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage]):
+        await self._on_confirm_connection(event.payload)
+
         plugin_identifier = event.payload.plugin_identifier
         operation_name = event.payload.operation_name
 
@@ -408,7 +431,14 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 if self.raise_exceptions:
                     raise e
 
+    async def _on_operation_no_longer_available(self, message: OperationNoLongerAvailableMessage):
+        """
+        TODO: doc
+        """
+
     async def _operation_no_longer_available_event_handler(self, topic: str, event: Event[OperationNoLongerAvailableMessage]):
+        await self._on_operation_no_longer_available(event.payload)
+
         self.have_seen(event.payload.plugin_identifier)
 
         try:
@@ -420,10 +450,17 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         except Exception as e:
             logging.warning(f"{self}: pending request for operation {event.payload.operation_name} of plugin {event.payload.plugin_identifier} can not be removed, maybe already removed")
 
+    async def _on_response(self):
+        """
+        TODO: str
+        """
+
     @event_handler
     async def _response_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage | OperationNoLongerAvailableMessage]):
 
         logging.info(f"{self}: new response: {topic} -> {event}")
+
+        await self._on_response()
 
         if isinstance(event.payload, ConfirmConnectionMessage):
             await self._confirm_connection_event_handler(topic, event)
@@ -453,7 +490,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         return False
 
     async def execute(self, operation_name: str, payload: Optional[AvroEventPayload] = None,
-        /, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None):
+        /, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None) -> int:
         """
         Execute the operation by its name.
 
@@ -481,7 +518,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 if self.__check_compatibility_connection_payload(connection, payload):
                     topics.add(connection.input_topic)
 
-            if any:
+            if any and len(topics) > 0:
                 topics = { random.choice(list(topics)) }
 
         else:
@@ -490,6 +527,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         await self.eventbus_client.multi_publish(list(topics), payload.into_event() if payload is not None else Event())
 
+        return len(topics)
 
     async def sudo_execute(self, topic: str, payload: Optional[AvroEventPayload] = None):
         await self.eventbus_client.publish(topic, payload.into_event() if payload is not None else None)

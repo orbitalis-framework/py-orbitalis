@@ -24,7 +24,7 @@ class AllowBlockListMixin(ABC):
     def allow_only(cls, identifier: str) -> Self:
         return cls(allowlist=[identifier])
 
-    def is_compliance(self, identifier: str) -> bool:
+    def is_compatible(self, identifier: str) -> bool:
         if self.blocklist is not None and identifier in self.blocklist:
             return False
 

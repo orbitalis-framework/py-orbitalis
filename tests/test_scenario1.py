@@ -232,4 +232,11 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(self.lamp_x_plugin.identifier in self.smart_home1.lamp_status)
 
+    async def test_execute_without_handshake(self):
+        await self.smart_home1.execute("get_status", plugin_identifier=self.lamp_x_plugin.identifier)
+
+        await asyncio.sleep(1)
+
+        self.assertTrue(self.lamp_x_plugin.identifier not in self.smart_home1.lamp_status)
+
 

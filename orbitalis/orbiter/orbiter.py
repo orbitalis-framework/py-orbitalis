@@ -381,7 +381,7 @@ class Orbiter(ABC):
 
             await self._on_graceless_close_connection(remote_identifier, operation_name, data)
 
-            connection = await self._close_connection(
+            connection = await self._close_self_side_connection(
                 remote_identifier,
                 operation_name
             )
@@ -411,29 +411,22 @@ class Orbiter(ABC):
         TODO: doc
         """
 
-    async def _close_connection(self, remote_identifier: str, operation_name: str):
+    async def _close_self_side_connection(self, remote_identifier: str, operation_name: str):
 
-        try:
-            self.have_seen(remote_identifier)
+        connection = self._connections[remote_identifier][operation_name]
 
-            connection = self._connections[remote_identifier][operation_name]
+        async with connection.lock:
+            connection = self._remove_connection(connection)
 
-            async with connection.lock:
-                connection = self._remove_connection(connection)
+        await self._on_close_connection(connection)
 
-            await self._on_close_connection(connection)
+        if len(self._connections[remote_identifier].values()) == 0:
+            await self.eventbus_client.multi_unsubscribe(list(self._unsubscribe_on_close_bucket[remote_identifier]), parallelize=True)
+            self._unsubscribe_on_close_bucket.pop(remote_identifier, None)
 
-            if len(self._connections[remote_identifier].values()) == 0:
-                await self.eventbus_client.multi_unsubscribe(list(self._unsubscribe_on_close_bucket[remote_identifier]), parallelize=True)
-                self._unsubscribe_on_close_bucket.pop(remote_identifier, None)
+        logging.info(f"{self}: self side connection {connection} closed")
 
-            logging.info(f"{self}: connection {connection} closed")
-
-        except Exception as e:
-            logging.error(f"{self}: {repr(e)}; maybe connection already removed")
-
-            if self.raise_exceptions:
-                raise e
+        return connection
 
     def build_ack_close_topic(self, remote_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{self.identifier}.{remote_identifier}.close.ack.{uuid.uuid4()}"
@@ -483,7 +476,7 @@ class Orbiter(ABC):
             close_connection_message.data
         )
 
-        await self._close_connection(
+        await self._close_self_side_connection(
             close_connection_message.from_identifier,
             close_connection_message.operation_name
         )
@@ -498,8 +491,11 @@ class Orbiter(ABC):
 
     @event_handler
     async def _close_connection_ack_event_handler(self, topic: str, event: Event[CloseConnectionAckMessage]):
-        return asyncio.gather(
-            self._close_connection(
+
+        self.have_seen(event.payload.from_identifier)
+
+        await asyncio.gather(
+            self._close_self_side_connection(
                 event.payload.from_identifier,
                 event.payload.operation_name
             ),
@@ -519,7 +515,7 @@ class Orbiter(ABC):
                     event.payload.data
                 )
 
-                await self._close_connection(
+                await self._close_self_side_connection(
                     event.payload.from_identifier,
                     event.payload.operation_name
                 )
@@ -627,24 +623,27 @@ class Orbiter(ABC):
         await self._on_loop_start()
 
         while not self._stop_loop_controller.is_set():
-            while not self._pause_loop_controller.is_set():
-                await asyncio.sleep(self.loop_interval)
 
-                try:
-                    await self._on_new_loop_iteration()
+            await asyncio.sleep(self.loop_interval)
 
-                    await asyncio.gather(
-                        # self._on_loop_iteration(),
-                        # self.close_unused_connections(),
-                        # self.discard_expired_pending_requests(),
-                        # self.send_keepalive_based_on_connections_and_threshold()
-                    )
+            if self._pause_loop_controller.is_set():
+                continue
 
-                    await self._on_loop_iteration_end()
+            try:
+                await self._on_new_loop_iteration()
 
-                except Exception as e:
+                await asyncio.gather(
+                    self._on_loop_iteration(),
+                    self.close_unused_connections(),
+                    self.discard_expired_pending_requests(),
+                    self.send_keepalive_based_on_connections_and_threshold()
+                )
 
-                    logging.error(f"{self}: error during loop iteration: {repr(e)}")
+                await self._on_loop_iteration_end()
 
-                    if self.raise_exceptions:
-                        raise e
+            except Exception as e:
+
+                logging.error(f"{self}: error during loop iteration: {repr(e)}")
+
+                if self.raise_exceptions:
+                    raise e

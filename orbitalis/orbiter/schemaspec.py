@@ -57,6 +57,7 @@ class SchemaSpec:
             for other_schema in other.schemas:
                 if self._compare_two_schema(my_schema, other_schema):
                     found = True
+                    break
 
             if not found:
                 return False
@@ -136,7 +137,7 @@ class Inputs:
 
             if my_input.is_compatible(input):
                 found = True
-                continue
+                break
 
         return found
 
@@ -151,6 +152,6 @@ class Outputs:
 
             if my_output.is_compatible(output):
                 found = True
-                continue
+                break
 
         return found

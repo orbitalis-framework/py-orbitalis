@@ -119,9 +119,9 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.lamp_x_plugin.pause_loop_controller.set()
 
-        # await asyncio.sleep(1)
-        #
-        # self.assertEqual(len(self.smart_home.dead_remote_identifiers), 1)
+        await asyncio.sleep(4)
+
+        self.assertEqual(len(self.smart_home.dead_remote_identifiers), 1)
 
 
 

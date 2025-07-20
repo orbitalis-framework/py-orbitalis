@@ -82,7 +82,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         await self.eventbus_client.subscribe(self.discover_topic, self._discover_event_handler)
 
     def can_lend_to_core(self, core_identifier: str, operation_name: str) -> bool:
-        if not self.operations[operation_name].policy.is_compliance(core_identifier):
+        if not self.operations[operation_name].policy.is_compatible(core_identifier):
             return False
 
         if self.operations[operation_name].policy.maximum is None or len(self._retrieve_connections(operation_name=operation_name)) < self.operations[operation_name].policy.maximum:
@@ -95,8 +95,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
             return False
 
         # check compatibility with block/allow list
-        if (core_needed_operation_constraint.blocklist is not None and self.identifier in core_needed_operation_constraint.blocklist) \
-                or (core_needed_operation_constraint.allowlist is not None and self.identifier not in core_needed_operation_constraint.allowlist):
+        if not core_needed_operation_constraint.is_compatible(self.identifier):
             return False
 
         # check if already in pending request
@@ -134,9 +133,16 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
         return True
 
+    async def _on_new_discover(self, discover_message: DiscoverMessage):
+        """
+        TODO: doc
+        """
+
     @event_handler
     async def _discover_event_handler(self, topic: str, event: Event[DiscoverMessage]):
         logging.info(f"{self}: new discover event from {event.payload.core_identifier}: {topic} -> {event}")
+
+        await self._on_new_discover(event.payload)
 
         self.update_acquaintances(
             event.payload.core_identifier,
@@ -168,6 +174,11 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
     def build_operation_input_topic_for_core(self, core_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{core_identifier}.{self.identifier}.input.{uuid4()}"
 
+    async def _on_send_offer(self, offer_message: OfferMessage):
+        """
+        TODO: doc
+        """
+
     async def send_offer(self, offer_topic: str, core_identifier: str, offerable_operations: List[str]):
 
         if len(offerable_operations) == 0:
@@ -196,16 +207,20 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
             new_pending_requests.append(pending_request)
 
         try:
-            await self.eventbus_client.publish(
-                topic=offer_topic,
-                event=OfferMessage(
+            offer_message = OfferMessage(
                     plugin_identifier=self.identifier,
                     offered_operations=offered_operations,
                     reply_topic=self.reply_topic,
                     plugin_keepalive_topic=self.keepalive_topic,
                     plugin_keepalive_request_topic=self.keepalive_request_topic,
                     considered_dead_after=self.consider_others_dead_after
-                ).into_event()
+                )
+
+            await self._on_send_offer(offer_message)
+
+            await self.eventbus_client.publish(
+                topic=offer_topic,
+                event=offer_message.into_event()
             )
 
         except Exception as e:
@@ -221,8 +236,15 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
             if self.raise_exceptions:
                 raise e
 
+    async def _on_reject(self, message: RejectOperationMessage):
+        """
+        TODO: doc
+        """
+
     async def _reject_event_handler(self, topic: str, event: Event[RejectOperationMessage]):
         logging.debug(f"{self}: core {event.payload.core_identifier} rejects plug request for this operation: {event.payload.operation_name}")
+
+        await self._on_reject(event.payload)
 
         self.have_seen(event.payload.core_identifier)
 
@@ -293,8 +315,14 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
             raise e
 
+    async def _on_request(self, message: RequestOperationMessage):
+        """
+        TODO: doc
+        """
 
     async def _request_operation_event_handler(self, topic: str, event: Event[RequestOperationMessage]):
+
+        await self._on_request(event.payload)
 
         core_identifier = event.payload.core_identifier
         operation_name = event.payload.operation_name
@@ -349,9 +377,16 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
                     raise e
 
 
+    async def _on_reply(self):
+        """
+        TODO: doc
+        """
+
     @event_handler
     async def _reply_event_handler(self, topic: str, event: Event[RequestOperationMessage | RejectOperationMessage]):
         logging.info(f"{self}: new reply: {topic} -> {event}")
+
+        await self._on_reply()
 
         if isinstance(event.payload, RequestOperationMessage):
             await self._request_operation_event_handler(topic, event)

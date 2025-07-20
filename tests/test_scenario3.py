@@ -59,15 +59,15 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             needed_operations={
                 "turn_on": Need(
                     Constraint(
-                        minimum=1,
-                        inputs=[Input.empty(), Input.from_schema(TurnOnLampYMessage.avro_schema()).with_empty_support()],
+                        minimum=0,
+                        inputs=[Input.empty(), Input.from_schema(TurnOnLampYMessage.avro_schema())],
                         outputs=[Output.no_output()]
                     )
                 ),
                 "turn_off": Need(
                     Constraint(
-                        minimum=1,
-                        inputs=[Input.empty(), Input.from_schema(TurnOffLampYMessage.avro_schema()).with_empty_support()],
+                        minimum=0,
+                        inputs=[Input.empty(), Input.from_schema(TurnOffLampYMessage.avro_schema())],
                         outputs=[Output.no_output()]
                     )
                 ),

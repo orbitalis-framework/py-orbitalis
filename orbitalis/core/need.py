@@ -16,7 +16,7 @@ class Constraint(AllowBlockListMixin, Inputs, Outputs):
     mandatory: identifiers
     """
 
-    minimum: int
+    minimum: int = field(default=0)
     maximum: Optional[int] = field(default=None)
     mandatory: List[str] = field(default_factory=list)
 

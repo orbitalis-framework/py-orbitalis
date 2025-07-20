@@ -63,11 +63,13 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             raise_exceptions=True,
             needed_operations={
                 "turn_on": Need(Constraint(
+                    minimum=1,
                     mandatory=["lamp_x_plugin"],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
                 )),
                 "turn_off": Need(Constraint(
+                    minimum=1,
                     mandatory=["lamp_x_plugin"],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
