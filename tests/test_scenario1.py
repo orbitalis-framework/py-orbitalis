@@ -31,7 +31,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="lamp_x_plugin",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
-            with_loops=False,
+            with_loop=False,
 
             kwh=24      # LampPlugin-specific attribute
         ).with_custom_policy(
@@ -49,15 +49,17 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="smart_home1",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
-            with_loops=False,
+            with_loop=False,
             needed_operations={
                 "turn_on": Need(Constraint(
+                    minimum=1,
                     mandatory=[self.lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
                 )),
                 "turn_off": Need(
                     Constraint(
+                        minimum=1,
                         mandatory=[self.lamp_x_plugin.identifier],
                         inputs=[Input.empty()],
                         outputs=[Output.no_output()]
@@ -65,6 +67,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 ),
                 "get_status": Need(
                     Constraint(
+                        minimum=1,
                         inputs=[Input.empty()],
                         outputs=[Output.from_schema(StatusMessage.avro_schema())]
                     )
@@ -78,14 +81,16 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="smart_home2",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
-            with_loops=False,
+            with_loop=False,
             needed_operations={
                 "turn_on": Need(Constraint(
+                    minimum=1,
                     mandatory=[self.lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
                 )),
                 "turn_off": Need(Constraint(
+                    minimum=1,
                     mandatory=[self.lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
@@ -131,17 +136,17 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(self.smart_home1.is_compliance())
 
-        self.assertTrue(len(self.smart_home1.retrieve_connections(
+        self.assertTrue(len(self.smart_home1._retrieve_connections(
             remote_identifier=self.lamp_x_plugin.identifier,
             operation_name="turn_on"
         )) == 1)
 
-        self.assertTrue(len(self.lamp_x_plugin.retrieve_connections(
+        self.assertTrue(len(self.lamp_x_plugin._retrieve_connections(
             remote_identifier=self.smart_home1.identifier,
             operation_name="turn_on"
         )) == 1)
 
-        self.assertTrue(len(self.lamp_x_plugin.retrieve_connections(
+        self.assertTrue(len(self.lamp_x_plugin._retrieve_connections(
             remote_identifier=self.smart_home1.identifier,
             operation_name="turn_off"
         )) == 1)
@@ -164,7 +169,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(1)
 
-        self.assertTrue(len(self.smart_home1.retrieve_connections(
+        self.assertTrue(len(self.smart_home1._retrieve_connections(
             remote_identifier=self.lamp_x_plugin.identifier,
             operation_name="turn_on"
         )) == 0)
@@ -175,7 +180,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(1)
 
-        self.assertTrue(len(self.smart_home1.retrieve_connections(
+        self.assertTrue(len(self.smart_home1._retrieve_connections(
             remote_identifier=self.lamp_x_plugin.identifier,
             operation_name="turn_off"
         )) == 0)

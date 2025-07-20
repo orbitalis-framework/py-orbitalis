@@ -5,7 +5,7 @@ from abc import ABC
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Set, Coroutine
+from typing import Dict, List, Optional, Any, Set, Coroutine, Tuple
 from busline.client.pubsub_client import PubTopicSubClient
 import uuid
 
@@ -21,14 +21,10 @@ from orbitalis.orbiter.pending_request import PendingRequest
 DEFAULT_DISCOVER_TOPIC = "$handshake.discover"
 
 
-DEFAULT_PENDING_REQUEST_EXPIRES_AFTER = 60.0
-DEFAULT_DISCARD_CONNECTION_IF_UNUSED_AFTER = 600.0
+DEFAULT_LOOP_INTERVAL = 1
+DEFAULT_PENDING_REQUESTS_EXPIRE_AFTER = 60.0
 
-DEFAULT_DISCARD_EXPIRED_PENDING_REQUESTS_INTERVAL = 0.2 * DEFAULT_PENDING_REQUEST_EXPIRES_AFTER
-DEFAULT_DISCARD_UNUSED_CONNECTIONS_INTERVAL = 0.2 * DEFAULT_DISCARD_CONNECTION_IF_UNUSED_AFTER
-DEFAULT_RENEW_KEEPALIVE_INTERVAL = 0.5
-
-DEFAULT_KEEPALIVE_THRESHOLD_MULTIPLIER = 0.5 # %
+DEFAULT_SEND_KEEPALIVE_BEFORE_TIMELIMIT = 10.0
 DEFAULT_CONSIDERED_DEAD_AFTER = 120.0
 
 
@@ -46,19 +42,14 @@ class Orbiter(ABC):
     discover_topic: str = field(default=DEFAULT_DISCOVER_TOPIC)
     raise_exceptions: bool = field(default=False)
 
-    main_loop_interval: float = field(default=0)
-    discard_pending_requests_loop_interval: float = field(default=DEFAULT_DISCARD_EXPIRED_PENDING_REQUESTS_INTERVAL)
-    discard_unused_connections_interval: float = field(default=DEFAULT_DISCARD_UNUSED_CONNECTIONS_INTERVAL)
-    send_keepalive_interval: float = field(default=DEFAULT_RENEW_KEEPALIVE_INTERVAL)
+    loop_interval: float = field(default=DEFAULT_LOOP_INTERVAL)
 
-    pending_request_expires_after: float = field(default=DEFAULT_PENDING_REQUEST_EXPIRES_AFTER)
-    discard_connection_if_unused_after: float = field(default=DEFAULT_DISCARD_CONNECTION_IF_UNUSED_AFTER)
-    pending_requests_expire_after: float = field(default=DEFAULT_CONSIDERED_DEAD_AFTER)
+    close_connection_if_unused_after: Optional[float] = field(default=None)
+    pending_requests_expire_after: Optional[float] = field(default=DEFAULT_PENDING_REQUESTS_EXPIRE_AFTER)
     consider_others_dead_after: float = field(default=DEFAULT_CONSIDERED_DEAD_AFTER)
-    send_keepalive_threshold_multiplier: float = field(default=DEFAULT_KEEPALIVE_THRESHOLD_MULTIPLIER)
-    connections_unused_after: Optional[float] = field(default=None)
+    send_keepalive_before_timelimit: float = field(default=DEFAULT_SEND_KEEPALIVE_BEFORE_TIMELIMIT)
 
-    with_loops: bool = field(default=True)
+    with_loop: bool = field(default=True)
 
     _others_considers_me_dead_after: Dict[str, float] = field(default_factory=dict, init=False)
     _remote_keepalive_request_topics: Dict[str, str] = field(default_factory=dict, init=False)   # remote_identifier => keepalive_request_topic
@@ -71,21 +62,12 @@ class Orbiter(ABC):
 
     _unsubscribe_on_close_bucket: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set), init=False)
 
-    _stop_main_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
-    _pause_main_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
-
-    _stop_discard_pending_requests_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
-    _pause_discard_pending_requests_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
-
-    _stop_discard_connections_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
-    _pause_discard_connections_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
-
-    _stop_send_keepalive_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
-    _pause_send_keepalive_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
+    _stop_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
+    _pause_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
 
     def __post_init__(self):
-        if 0 > self.send_keepalive_threshold_multiplier or self.send_keepalive_threshold_multiplier > 1:
-            raise ValueError("send_keepalive_threshold_multiplier must be between 0 and 1")
+        if 0 > self.send_keepalive_before_timelimit:
+            raise ValueError("send_keepalive_before_timelimit must be >= 0")
 
     @property
     def keepalive_request_topic(self) -> str:
@@ -106,6 +88,10 @@ class Orbiter(ABC):
         return pending_requests
 
     @property
+    def pause_loop_controller(self) -> asyncio.Event:
+        return self._pause_loop_controller
+
+    @property
     def _all_connections(self) -> List[Connection]:
 
         connections: List[Connection] = []
@@ -115,22 +101,30 @@ class Orbiter(ABC):
 
         return connections
 
-    def connections_by_remote_identifier(self, remote_identifier: str) -> Dict[str, Connection]:
+    @property
+    def dead_remote_identifiers(self) -> List[str]:
+        dead = []
+        now = datetime.now()
+        for remote_identifier, last_seen in self._last_seen.items():
+            if (last_seen + timedelta(seconds=self.consider_others_dead_after)) < now:
+                dead.append(remote_identifier)
+
+        return dead
+
+    def _connections_by_remote_identifier(self, remote_identifier: str) -> Dict[str, Connection]:
         return self._connections[remote_identifier]
 
     def _add_connection(self, connection: Connection):
         self._connections[connection.remote_identifier][connection.operation_name] = connection
 
-    def _remove_connection(self, remote_identifier: str, operation_name: str) -> Optional[Connection]:
-        if remote_identifier in self._connections:
-            if operation_name in self._connections[remote_identifier]:
-                return self._connections[remote_identifier].pop(operation_name)
+    def _remove_connection(self, connection: Connection) -> Optional[Connection]:
+        if connection.remote_identifier in self._connections:
+            if connection.operation_name in self._connections[connection.remote_identifier]:
+                return self._connections[connection.remote_identifier].pop(connection.operation_name)
 
-        logging.warning(f"{self}: no connection for identifier '{remote_identifier}' and operation '{operation_name}'")
+        raise ValueError(f"{self}: no connection for identifier '{connection.remote_identifier}' and operation '{connection.operation_name}'")
 
-        return None
-
-    def pending_requests_by_remote_identifier(self, remote_identifier: str) -> Dict[str, PendingRequest]:
+    def _pending_requests_by_remote_identifier(self, remote_identifier: str) -> Dict[str, PendingRequest]:
         return self._pending_requests[remote_identifier]
 
     def _is_pending(self, remote_identifier: str, operation_name: str) -> bool:
@@ -143,16 +137,15 @@ class Orbiter(ABC):
     def _add_pending_request(self, pending_request: PendingRequest):
         self._pending_requests[pending_request.remote_identifier][pending_request.operation_name] = pending_request
 
-    def _remove_pending_request(self, remote_identifier: str, operation_name: str) -> Optional[PendingRequest]:
-        if remote_identifier in self._pending_requests:
-            if operation_name in self._pending_requests[remote_identifier]:
-                return self._pending_requests[remote_identifier].pop(operation_name)
+    def _remove_pending_request(self, pending_request: PendingRequest) -> Optional[PendingRequest]:
+        if pending_request.remote_identifier in self._pending_requests:
+            if pending_request.operation_name in self._pending_requests[pending_request.remote_identifier]:
+                return self._pending_requests[pending_request.remote_identifier].pop(pending_request.operation_name)
 
-        logging.warning(f"{self}: no pending request for identifier '{remote_identifier}' and operation '{operation_name}'")
+        raise ValueError(f"{self}: no pending request for identifier '{pending_request.remote_identifier}' and operation '{pending_request.operation_name}'")
 
-        return None
 
-    def retrieve_connections(self, *, remote_identifier: Optional[str] = None, input_topic: Optional[str] = None, output_topic: Optional[str] = None, operation_name: Optional[str] = None) -> List[Connection]:
+    def _retrieve_connections(self, *, remote_identifier: Optional[str] = None, input_topic: Optional[str] = None, output_topic: Optional[str] = None, operation_name: Optional[str] = None) -> List[Connection]:
         # TODO: cache?
 
         connections: List[Connection] = []
@@ -177,55 +170,88 @@ class Orbiter(ABC):
 
         return connections
 
-    async def _on_promote_pending_request_to_connection(self, pending_request: PendingRequest):
+    def _on_promote_pending_request_to_connection(self, pending_request: PendingRequest):
         """
         TODO: doc
         """
 
-    async def promote_pending_request_to_connection(self, pending_request: PendingRequest):
-        async with asyncio.Lock():
-            try:
+    def _promote_pending_request_to_connection(self, pending_request: PendingRequest):
+        try:
 
-                await self._on_promote_pending_request_to_connection(pending_request)
+            self._on_promote_pending_request_to_connection(pending_request)
 
-                self._add_connection(pending_request.into_connection())
-                self._remove_pending_request(pending_request.remote_identifier, pending_request.operation_name)
+            self._add_connection(pending_request.into_connection())
+            self._remove_pending_request(pending_request)
 
-            except Exception as e:
-                logging.error(f"{self}: {repr(e)}")
+        except Exception as e:
+            logging.error(f"{self}: {repr(e)}")
 
-                if self.raise_exceptions:
-                    raise e
+            if self.raise_exceptions:
+                raise e
 
-    async def discard_expired_pending_requests(self):
+    async def discard_expired_pending_requests(self) -> int:
         """
         Remove from pending requests expired requests based on datetime provided or seconds elapsed.
         Seconds override expiration_date.
         Return total amount of discarded requests
         """
 
+        if self.pending_requests_expire_after is None:
+            return 0
+
+        if len(self._pending_requests) == 0:
+            return 0
+
+        to_remove: List[PendingRequest] = []
+
+        discarded = 0
         for remote_identifier, of_operation in self._pending_requests.items():
             for operation_name, pending_request in of_operation.items():
-                async with pending_request.lock:
-                    if operation_name not in self._pending_requests:
-                        continue    # someone has removed pending request before
+                if (pending_request.created_at + timedelta(seconds=self.pending_requests_expire_after)) < datetime.now():
+                    to_remove.append(pending_request)
 
-                    self._remove_pending_request(remote_identifier, operation_name)
+        for pending_request in to_remove:
+            async with pending_request.lock:
+                try:
+                    self._remove_pending_request(pending_request)
+                    discarded += 1
+                except Exception as e:
+                    logging.warning(f"{self}: pending request {pending_request} was removed before discarding")
 
-    async def discard_unused(self):
+        return discarded
+
+    async def close_unused_connections(self) -> int:
         """
-        Remove from pending requests expired requests based on datetime provided or seconds elapsed.
-        Seconds override expiration_date.
-        Return total amount of discarded requests
+
         """
 
+        if self.close_connection_if_unused_after is None:
+            return 0
+
+        if len(self._connections) == 0:
+            return 0
+
+        to_close: List[Connection] = []
+
+        closed = 0
         for remote_identifier, of_operation in self._connections.items():
             for operation_name, connection in of_operation.items():
-                async with connection.lock:
-                    if operation_name not in self._connections:
-                        continue  # someone has removed connection before
+                if (connection.created_at + timedelta(seconds=self.close_connection_if_unused_after)) < datetime.now():
+                    to_close.append(connection)
 
-                    self._remove_connection(remote_identifier, operation_name)
+        tasks = []
+        for connection in to_close:
+            tasks.append(
+                asyncio.create_task(
+                    self.graceful_close_connection(connection.remote_identifier, connection.operation_name)
+                )
+            )
+            closed += 1
+
+        if len(tasks) > 0:
+            await asyncio.gather(*tasks)
+
+        return closed
 
 
     def update_acquaintances(self, remote_identifier: str,
@@ -300,7 +326,7 @@ class Orbiter(ABC):
             ).into_event()
         )
 
-    async def send_keepalive_based_on_connections(self):
+    async def send_all_keepalive_based_on_connections(self):
         tasks = []
         for remote_identifier, operations in self._connections.values():
             if len(operations) > 0 and remote_identifier in self._remote_keepalive_topics:
@@ -312,7 +338,8 @@ class Orbiter(ABC):
 
     async def send_keepalive_based_on_connections_and_threshold(self):
         tasks = []
-        for remote_identifier, operations in self._connections.items():
+
+        for remote_identifier in self._connections.keys():
             if remote_identifier not in self._others_considers_me_dead_after:
                 logging.error(f"{self}: no dead time associated to {remote_identifier}, keepalive sending skipped")
                 continue
@@ -326,16 +353,17 @@ class Orbiter(ABC):
                 )
                 continue
 
-            considered_dead_at: datetime = self._last_keepalive_sent[remote_identifier] + timedelta(seconds=self._others_considers_me_dead_after[remote_identifier])
+            considered_dead_at: datetime = self._last_keepalive_sent[remote_identifier] + timedelta(
+                seconds=self._others_considers_me_dead_after[remote_identifier])
 
             if (considered_dead_at - datetime.now()).seconds < 0:
-                logging.warning(f"{self}: {remote_identifier} could be flag me as dead, anyway keepalive sending is tried")
+                logging.warning(
+                    f"{self}: {remote_identifier} could be flag me as dead, anyway keepalive sending is tried")
 
-            assert 0 <= self.send_keepalive_threshold_multiplier <= 1, "send_keepalive_threshold_multiplier must be between 0 and 1"
+            assert 0 <= self.send_keepalive_before_timelimit, "send_keepalive_threshold_multiplier must be >= 0"
 
             if remote_identifier not in self._last_keepalive_sent \
-                    or (considered_dead_at - datetime.now()).seconds < (
-                    self.send_keepalive_threshold_multiplier * self._others_considers_me_dead_after[remote_identifier]):
+                    or (considered_dead_at - datetime.now()).seconds < self.send_keepalive_before_timelimit:
                 tasks.append(
                     asyncio.create_task(
                         self.send_keepalive(remote_identifier)
@@ -383,37 +411,29 @@ class Orbiter(ABC):
         TODO: doc
         """
 
-    async def _close_connection(self, remote_identifier: str, operation_name: str) -> Optional[Connection]:
+    async def _close_connection(self, remote_identifier: str, operation_name: str):
 
         try:
             self.have_seen(remote_identifier)
 
-            connection = self._remove_connection(
-                remote_identifier,
-                operation_name
-            )
+            connection = self._connections[remote_identifier][operation_name]
 
-            if connection is None:
-                raise ValueError(f"Connection not found for '{remote_identifier}', '{operation_name}'")
+            async with connection.lock:
+                connection = self._remove_connection(connection)
 
             await self._on_close_connection(connection)
 
-
             if len(self._connections[remote_identifier].values()) == 0:
                 await self.eventbus_client.multi_unsubscribe(list(self._unsubscribe_on_close_bucket[remote_identifier]), parallelize=True)
-                self._unsubscribe_on_close_bucket.pop(remote_identifier)
+                self._unsubscribe_on_close_bucket.pop(remote_identifier, None)
 
             logging.info(f"{self}: connection {connection} closed")
 
-            return connection
-
         except Exception as e:
-            logging.error(f"{self}: {repr(e)}")
+            logging.error(f"{self}: {repr(e)}; maybe connection already removed")
 
             if self.raise_exceptions:
                 raise e
-
-        return None
 
     def build_ack_close_topic(self, remote_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{self.identifier}.{remote_identifier}.close.ack.{uuid.uuid4()}"
@@ -422,7 +442,7 @@ class Orbiter(ABC):
         try:
             await self._on_graceful_close_connection(remote_identifier, operation_name, data)
 
-            connections = self.retrieve_connections(
+            connections = self._retrieve_connections(
                 remote_identifier=remote_identifier,
                 operation_name=operation_name
             )
@@ -432,7 +452,6 @@ class Orbiter(ABC):
             connection = connections[0]
 
             ack_topic = self.build_ack_close_topic(remote_identifier, operation_name)
-            self._unsubscribe_on_close_bucket[remote_identifier].add(ack_topic)
 
             await self.eventbus_client.subscribe(ack_topic, self._close_connection_ack_event_handler)
 
@@ -479,9 +498,12 @@ class Orbiter(ABC):
 
     @event_handler
     async def _close_connection_ack_event_handler(self, topic: str, event: Event[CloseConnectionAckMessage]):
-        await self._close_connection(
-            event.payload.from_identifier,
-            event.payload.operation_name
+        return asyncio.gather(
+            self._close_connection(
+                event.payload.from_identifier,
+                event.payload.operation_name
+            ),
+            self.eventbus_client.unsubscribe(topic)
         )
 
     @event_handler
@@ -542,8 +564,8 @@ class Orbiter(ABC):
             self._keepalive_event_handler
         )
 
-        if self.with_loops:
-            await self.start_loops()
+        if self.with_loop:
+            asyncio.create_task(self._loop())
 
     async def _on_started(self, *args, **kwargs):
         """
@@ -573,135 +595,56 @@ class Orbiter(ABC):
             self.keepalive_topic,
         ])
 
-        await self.stop_loops()
+        self._stop_loop_controller.set()
 
     async def _on_stopped(self, *args, **kwargs):
         """
         TODO
         """
 
-    async def _on_main_loop_start(self):
+    async def _on_loop_start(self):
         """
         TODO: doc
         """
 
-    async def _on_main_loop_iteration(self):
+    async def _on_new_loop_iteration(self):
         """
         TODO: doc
         """
 
-    async def _main_loop(self):
-
-        await self._on_main_loop_start()
-
-        while not self._stop_main_loop_controller.is_set():
-            while not self._pause_main_loop_controller.is_set():
-                await asyncio.sleep(self.main_loop_interval)
-
-                await self._on_main_loop_iteration()
-
-    async def _on_discard_expired_pending_requests_loop_start(self):
+    async def _on_loop_iteration_end(self):
         """
         TODO: doc
         """
 
-    async def _on_new_discard_expired_pending_requests_loop_iteration(self):
+    async def _on_loop_iteration(self):
         """
         TODO: doc
         """
 
-    async def _on_discard_expired_pending_requests_loop_iteration_end(self):
-        """
-        TODO: doc
-        """
+    async def _loop(self):
 
-    async def _discard_expired_pending_requests_loop(self):
+        await self._on_loop_start()
 
-        await self._on_discard_unused_loop_start()
+        while not self._stop_loop_controller.is_set():
+            while not self._pause_loop_controller.is_set():
+                await asyncio.sleep(self.loop_interval)
 
-        while not self._stop_main_loop_controller.is_set():
-            while not self._pause_main_loop_controller.is_set():
+                try:
+                    await self._on_new_loop_iteration()
 
-                await asyncio.sleep(self.discard_pending_requests_loop_interval)
+                    await asyncio.gather(
+                        # self._on_loop_iteration(),
+                        # self.close_unused_connections(),
+                        # self.discard_expired_pending_requests(),
+                        # self.send_keepalive_based_on_connections_and_threshold()
+                    )
 
-                await self._on_new_discard_expired_pending_requests_loop_iteration()
+                    await self._on_loop_iteration_end()
 
-                await self.discard_expired_pending_requests()
+                except Exception as e:
 
-                await self._on_discard_expired_pending_requests_loop_iteration_end()
+                    logging.error(f"{self}: error during loop iteration: {repr(e)}")
 
-    async def _on_discard_unused_loop_start(self):
-        """
-        TODO: doc
-        """
-
-    async def _on_new_discard_unused_loop_iteration(self):
-        """
-        TODO: doc
-        """
-
-    async def _on_discard_unused_loop_iteration_end(self):
-        """
-        TODO: doc
-        """
-
-    async def _discard_unused_loop(self):
-        await self._on_discard_unused_loop_start()
-
-        while not self._stop_main_loop_controller.is_set():
-            while not self._pause_main_loop_controller.is_set():
-
-                await asyncio.sleep(self.discard_unused_connections_interval)
-
-                await self._on_new_discard_unused_loop_iteration()
-
-                await self.discard_unused()
-
-                await self._on_discard_unused_loop_iteration_end()
-
-    async def _on_send_keepalive_loop_start(self):
-        """
-        TODO: doc
-        """
-
-    async def _on_send_keepalive_loop_iteration(self):
-        """
-        TODO: doc
-        """
-
-    async def _on_send_keepalive_loop_iteration_end(self):
-        """
-        TODO: doc
-        """
-
-    async def _send_keepalive_loop(self):
-        await self._on_send_keepalive_loop_start()
-
-        while not self._stop_send_keepalive_loop_controller.is_set():
-            while not self._pause_send_keepalive_loop_controller.is_set():
-
-                await asyncio.sleep(self.send_keepalive_interval)
-
-                await self._on_send_keepalive_loop_iteration()
-
-                await self.send_keepalive_based_on_connections_and_threshold()
-
-                await self._on_send_keepalive_loop_iteration_end()
-
-    async def start_loops(self):
-        asyncio.create_task(self._main_loop())
-        asyncio.create_task(self._discard_unused_loop())
-        asyncio.create_task(self._discard_expired_pending_requests_loop())
-        asyncio.create_task(self._send_keepalive_loop())
-
-    async def stop_loops(self):
-        self._stop_main_loop_controller.set()
-        self._stop_discard_connections_loop_controller.set()
-        self._stop_discard_pending_requests_loop_controller.set()
-        self._stop_send_keepalive_loop_controller.set()
-
-    async def pause_loops(self):
-        self._pause_main_loop_controller.set()
-        self._pause_discard_connections_loop_controller.set()
-        self._pause_discard_pending_requests_loop_controller.set()
-        self._pause_send_keepalive_loop_controller.set()
+                    if self.raise_exceptions:
+                        raise e

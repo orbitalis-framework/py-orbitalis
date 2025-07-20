@@ -29,7 +29,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="lamp_x_plugin",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
-            with_loops=False,
+            with_loop=False,
 
             kwh=24      # LampPlugin-specific attribute
         )
@@ -42,7 +42,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="lamp_y_plugin",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
-            with_loops=False,
+            with_loop=False,
 
             kwh=42
         )
@@ -55,16 +55,18 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="smart_home1",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
-            with_loops=False,
+            with_loop=False,
             needed_operations={
                 "turn_on": Need(
                     Constraint(
+                        minimum=1,
                         inputs=[Input.empty(), Input.from_schema(TurnOnLampYMessage.avro_schema()).with_empty_support()],
                         outputs=[Output.no_output()]
                     )
                 ),
                 "turn_off": Need(
                     Constraint(
+                        minimum=1,
                         inputs=[Input.empty(), Input.from_schema(TurnOffLampYMessage.avro_schema()).with_empty_support()],
                         outputs=[Output.no_output()]
                     )

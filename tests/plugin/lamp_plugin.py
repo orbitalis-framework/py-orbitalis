@@ -62,7 +62,7 @@ class LampPlugin(Plugin, ABC):
         output=Output.from_payload(StatusMessage)
     )
     async def get_status_event_handler(self, topic: str, event: Event):
-        connections = self.retrieve_connections(input_topic=topic, operation_name="get_status")
+        connections = self._retrieve_connections(input_topic=topic, operation_name="get_status")
 
         assert len(connections) == 1
 

@@ -9,4 +9,5 @@ Distributed micro-kernel library for Python.
 - Touch connection per logiche di scollegamento
 - Reply/Response per singole operation per dare tempo di decidere
 - Lock su pending request e connection
+- Usare lock su promoto pending request, remove pending request, remove connection
 

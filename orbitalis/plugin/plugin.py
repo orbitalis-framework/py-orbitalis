@@ -85,7 +85,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         if not self.operations[operation_name].policy.is_compliance(core_identifier):
             return False
 
-        if self.operations[operation_name].policy.maximum is None or len(self.retrieve_connections(operation_name=operation_name)) < self.operations[operation_name].policy.maximum:
+        if self.operations[operation_name].policy.maximum is None or len(self._retrieve_connections(operation_name=operation_name)) < self.operations[operation_name].policy.maximum:
             return True
 
         return False
@@ -101,18 +101,18 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
         # check if already in pending request
         if core_identifier in self._pending_requests.keys() \
-                and core_needed_operation_name in self.pending_requests_by_remote_identifier(core_identifier):
+                and core_needed_operation_name in self._pending_requests_by_remote_identifier(core_identifier):
             return False
 
         # check if this plugin have already lent operation to core
-        if len(self.retrieve_connections(remote_identifier=core_identifier,
-                                         operation_name=core_needed_operation_name)) > 0:
+        if len(self._retrieve_connections(remote_identifier=core_identifier,
+                                          operation_name=core_needed_operation_name)) > 0:
             return False
 
         # check if there are slot available
         if self.operations[core_needed_operation_name].policy.maximum is not None:
             current_reserved_slot_for_operation: int = len(
-                self.retrieve_connections(operation_name=core_needed_operation_name))
+                self._retrieve_connections(operation_name=core_needed_operation_name))
 
             for core_identifier, operations in self._pending_requests.items():
                 if core_needed_operation_name in operations.keys():
@@ -174,6 +174,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
             return
 
         offered_operations: List[OfferedOperation] = []
+        new_pending_requests: List[PendingRequest] = []
 
         for operation_name in offerable_operations:
             offered_operations.append(
@@ -184,23 +185,15 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
                 )
             )
 
-        try:
-            for operation_name in offerable_operations:
-                self._add_pending_request(PendingRequest(
-                    operation_name=operation_name,
-                    remote_identifier=core_identifier,
-                    input=self.operations[operation_name].input,
-                    output=self.operations[operation_name].output
-                ))
+            pending_request = PendingRequest(
+                operation_name=operation_name,
+                remote_identifier=core_identifier,
+                input=self.operations[operation_name].input,
+                output=self.operations[operation_name].output
+            )
 
-        except Exception as e:
-            logging.error(f"{self}: {repr(e)}")
-
-            for operation_name in offerable_operations:
-                self._remove_pending_request(core_identifier, operation_name)
-
-            if self.raise_exceptions:
-                raise e
+            self._add_pending_request(pending_request)
+            new_pending_requests.append(pending_request)
 
         try:
             await self.eventbus_client.publish(
@@ -218,8 +211,12 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         except Exception as e:
             logging.error(f"{self}: {repr(e)}")
 
-            for operation_name in offerable_operations:
-                self._remove_pending_request(core_identifier, operation_name)
+            for pending_request in new_pending_requests:
+                try:
+                    async with pending_request.lock:
+                        self._remove_pending_request(pending_request)
+                except Exception:
+                    pass
 
             if self.raise_exceptions:
                 raise e
@@ -229,7 +226,14 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
         self.have_seen(event.payload.core_identifier)
 
-        self._remove_pending_request(event.payload.core_identifier, event.payload.operation_name)
+        try:
+            pending_request = self._pending_requests[event.payload.core_identifier][event.payload.operation_name]
+
+            async with pending_request.lock:
+                self._remove_pending_request(pending_request)
+
+        except Exception as e:
+            logging.warning(f"{self}: pending request ('{event.payload.core_identifier}', '{event.payload.operation_name}') can not be removed")
 
     async def _setup_operation(self, core_identifier: str, operation_name: str, setup_data: Optional[str]):
         """
@@ -300,10 +304,10 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         logging.debug(f"{self}: core {core_identifier} confirms plug request for this operation: {operation_name}")
 
         if not self._is_pending(core_identifier, operation_name):
-            logging.warning(f"{self}: not pending request for ({core_identifier}, {operation_name})")
+            logging.warning(f"{self}: pending request for ('{core_identifier}', '{operation_name}') not found")
             return
 
-        pending_request = self.pending_requests_by_remote_identifier(core_identifier)[operation_name]
+        pending_request = self._pending_requests_by_remote_identifier(core_identifier)[operation_name]
 
         async with pending_request.lock:
             if not self._is_pending(core_identifier, operation_name):
@@ -336,7 +340,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
                     pending_request.output_topic = event.payload.output_topic
                     pending_request.close_connection_to_remote_topic = event.payload.core_side_close_operation_connection_topic
 
-                    await self.promote_pending_request_to_connection(pending_request)
+                    self._promote_pending_request_to_connection(pending_request)
 
             except Exception as e:
                 logging.error(f"{self}: error during confirm pending request': {repr(e)}")

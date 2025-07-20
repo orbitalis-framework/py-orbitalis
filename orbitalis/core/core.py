@@ -3,7 +3,7 @@ import copy
 import random
 from abc import abstractmethod, ABC
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from dataclasses import dataclass, field
 from typing import override, Dict, Set, Optional, List, Tuple
@@ -33,6 +33,8 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
     discovering_interval: float = field(default=2)
     needed_operations: Dict[str, Need] = field(default_factory=dict)    # operation_name => Need
+
+    _last_discover_sent_at: Optional[datetime] = field(default=None)
 
     def __post_init__(self):
         super().__post_init__()
@@ -102,6 +104,8 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         await self.eventbus_client.multi_unsubscribe(topics, parallelize=True)
 
+        self.update_compliance()
+
     def constraint_for_operation(self, operation_name: str) -> Constraint:
 
         if operation_name not in self.needed_operations.keys():
@@ -109,7 +113,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         constraint = copy.deepcopy(self.needed_operations[operation_name]).constraint
 
-        for connection in self.retrieve_connections(operation_name=operation_name):
+        for connection in self._retrieve_connections(operation_name=operation_name):
 
             if constraint.mandatory is not None and connection.remote_identifier in constraint.mandatory:
                 constraint.mandatory.remove(connection.remote_identifier)
@@ -141,6 +145,18 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         return True
 
     def update_compliance(self):
+
+        if self.state == CoreState.CREATED:
+
+            if self.is_compliance():
+                self.state = CoreState.COMPLIANT
+                self._on_compliance()
+                return
+
+            else:
+                self.state = CoreState.NOT_COMPLIANT
+                self._on_not_compliance()
+                return
 
         before_was_compliance = self.state == CoreState.COMPLIANT
         now_is_compliance = self.is_compliance()
@@ -190,6 +206,8 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 considered_dead_after=self.consider_others_dead_after
             ).into_event()
         )
+
+        self._last_discover_sent_at = datetime.now()
 
     async def send_discover_based_on_needs(self):
         needed_operations: Dict[str, Constraint] = self.operation_to_discover()
@@ -328,7 +346,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             logging.warning(f"{self}: operation {operation_name} from plugin {plugin_identifier} was not requested")
             return
 
-        pending_request = self.pending_requests_by_remote_identifier(plugin_identifier)[operation_name]
+        pending_request = self._pending_requests_by_remote_identifier(plugin_identifier)[operation_name]
 
         async with pending_request.lock:
             if not self._is_pending(plugin_identifier, operation_name):
@@ -369,8 +387,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                         topics_to_unsubscribe_if_error.append(pending_request.output_topic)
 
                     except Exception as e:
-                        logging.error(
-                            f"{self}: error during subscribing to '{pending_request.output_topic}' in response handling: {repr(e)}")
+                        logging.error(f"{self}: error during subscribing to '{pending_request.output_topic}' in response handling: {repr(e)}")
 
                         await self.eventbus_client.unsubscribe(pending_request.incoming_close_connection_topic)
 
@@ -381,7 +398,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             pending_request.close_connection_to_remote_topic = event.payload.plugin_side_close_operation_connection_topic
 
             try:
-                await self.promote_pending_request_to_connection(pending_request)
+                self._promote_pending_request_to_connection(pending_request)
 
             except Exception as e:
                 logging.error(f"{self}: error during pending request promoting in response handling: {repr(e)}")
@@ -394,10 +411,14 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     async def _operation_no_longer_available_event_handler(self, topic: str, event: Event[OperationNoLongerAvailableMessage]):
         self.have_seen(event.payload.plugin_identifier)
 
-        self._remove_pending_request(
-            event.payload.plugin_identifier,
-            event.payload.operation_name
-        )
+        try:
+            pending_request = self._pending_requests[event.payload.plugin_identifier][event.payload.operation_name]
+
+            async with pending_request.lock:
+                self._remove_pending_request(pending_request)
+
+        except Exception as e:
+            logging.warning(f"{self}: pending request for operation {event.payload.operation_name} of plugin {event.payload.plugin_identifier} can not be removed, maybe already removed")
 
     @event_handler
     async def _response_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage | OperationNoLongerAvailableMessage]):
@@ -412,6 +433,8 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         else:
             raise ValueError("Unexpected reply payload")
+
+        self.update_compliance()
 
 
     def __check_compatibility_connection_payload(self, connection: Connection, payload: Optional[AvroEventPayload]) -> bool:
@@ -442,7 +465,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         topics: Set[str] = set()
 
-        connections = self.retrieve_connections(operation_name=operation_name)
+        connections = self._retrieve_connections(operation_name=operation_name)
 
         if plugin_identifier is not None:
 
@@ -472,9 +495,15 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         await self.eventbus_client.publish(topic, payload.into_event() if payload is not None else None)
 
     @override
-    async def _on_main_loop_iteration(self):
+    async def _on_loop_start(self):
+        await asyncio.sleep(self.discovering_interval)
+
+    @override
+    async def _on_loop_iteration(self):
         self.update_compliance()
-        await self.send_discover_based_on_needs()
+
+        if self._last_discover_sent_at is None or (self._last_discover_sent_at + timedelta(seconds=self.discovering_interval)) < datetime.now():
+            await self.send_discover_based_on_needs()
 
     def __str__(self):
         return f"Core('{self.identifier}')"

@@ -11,12 +11,12 @@ from orbitalis.utils.allowblocklist import AllowBlockListMixin
 @dataclass(kw_only=True)
 class Constraint(AllowBlockListMixin, Inputs, Outputs):
     """
-    min: minimum number (mandatory excluded)
-    max: maximum number (mandatory excluded)
+    min: minimum number (mandatory included)
+    max: maximum number (mandatory included)
     mandatory: identifiers
     """
 
-    minimum: int = field(default=0)
+    minimum: int
     maximum: Optional[int] = field(default=None)
     mandatory: List[str] = field(default_factory=list)
 

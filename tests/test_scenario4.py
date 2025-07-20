@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import unittest
 from typing import Any
 
@@ -30,11 +31,11 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="lamp_x_plugin",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
             raise_exceptions=True,
-            discard_unused_connections_interval=1,
-            discard_pending_requests_loop_interval=1,
-            discard_connection_if_unused_after=4,
-            pending_request_expires_after=1,
-            send_keepalive_interval=1,
+            close_connection_if_unused_after=3,
+            pending_requests_expire_after=2,
+            loop_interval=0,
+            consider_others_dead_after=3,
+            send_keepalive_before_timelimit=2,
 
             kwh=1      # LampPlugin-specific attribute
         )
@@ -46,16 +47,21 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         self.smart_home = SmartHomeCore(
             identifier="smart_home",
             eventbus_client=LocalPubTopicSubClientBuilder.default(),
+            discovering_interval=10,
+            consider_others_dead_after=3,
+            send_keepalive_before_timelimit=2,
             raise_exceptions=True,
             needed_operations={
                 "turn_on": Need(
                     Constraint(
+                        minimum=1,
                         inputs=[Input.empty()],
                         outputs=[Output.no_output()]
                     )
                 ),
                 "turn_off": Need(
                     Constraint(
+                        minimum=1,
                         inputs=[Input.empty()],
                         outputs=[Output.no_output()]
                     )
@@ -63,17 +69,61 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-    async def test_loops(self):
+
+    async def test_discard_in_loop(self):
+        self.assertFalse(self.smart_home.is_compliance())
         await self.lamp_x_plugin.start()
         await self.smart_home.start()
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(2)  # handshake time
 
+        last_discover = self.smart_home._last_discover_sent_at
+
+        self.assertEqual(len(self.lamp_x_plugin._connections[self.smart_home.identifier]), 2)
+        self.assertEqual(len(self.smart_home._connections[self.lamp_x_plugin.identifier]), 2)
+        self.assertTrue(self.smart_home.is_compliance())
         self.assertEqual(self.smart_home.state, CoreState.COMPLIANT)
 
-        await asyncio.sleep(4)
+        await asyncio.sleep(3)
+        await asyncio.sleep(1)
+        await asyncio.sleep(2)
 
+        self.assertEqual(len(self.lamp_x_plugin._connections[self.smart_home.identifier]), 0)
+        self.assertEqual(len(self.smart_home._connections[self.lamp_x_plugin.identifier]), 0)
         self.assertFalse(self.smart_home.is_compliance())
+
+        self.lamp_x_plugin.pending_requests_expire_after = None
+        self.lamp_x_plugin.close_connection_if_unused_after = None
+
+        await asyncio.sleep(5)      # new discover
+
+        self.assertTrue(self.smart_home._last_discover_sent_at > last_discover)
+
+        await asyncio.sleep(2)      # handshake time
+
+        self.assertEqual(len(self.lamp_x_plugin._connections[self.smart_home.identifier]), 2)
+        self.assertEqual(len(self.smart_home._connections[self.lamp_x_plugin.identifier]), 2)
+        self.assertEqual(self.smart_home.state, CoreState.COMPLIANT)
+        self.assertTrue(self.smart_home.is_compliance())
+
+
+    async def test_send_keepalive(self):
+        await self.lamp_x_plugin.start()
+        await self.smart_home.start()
+
+        await asyncio.sleep(2)  # handshake time
+
+        self.assertEqual(self.smart_home.state, CoreState.COMPLIANT)
+        self.assertEqual(len(self.smart_home.dead_remote_identifiers), 0)
+        self.assertEqual(len(self.lamp_x_plugin.dead_remote_identifiers), 0)
+
+        self.lamp_x_plugin.pause_loop_controller.set()
+
+        # await asyncio.sleep(1)
+        #
+        # self.assertEqual(len(self.smart_home.dead_remote_identifiers), 1)
+
+
 
 
 
