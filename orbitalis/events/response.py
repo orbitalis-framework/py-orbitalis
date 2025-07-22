@@ -1,17 +1,14 @@
 
-from dataclasses import dataclass, field
-from typing import Set, Optional, List, Dict
+from dataclasses import dataclass
+from typing import Optional
 
-from dataclasses_avroschema import AvroModel
-
-from busline.event.registry import registry
-from busline.event.avro_payload import AvroEventPayload
-from orbitalis.orbiter.schemaspec import Input
+from busline.event.registry import add_to_registry
+from busline.event.message.avro_message import AvroMessageMixin
 
 
 @dataclass(frozen=True, kw_only=True)
-@registry
-class ConfirmConnectionMessage(AvroEventPayload):
+@add_to_registry
+class ConfirmConnectionMessage(AvroMessageMixin):
     """
 
     TODO
@@ -27,8 +24,8 @@ class ConfirmConnectionMessage(AvroEventPayload):
 
 
 @dataclass(frozen=True, kw_only=True)
-@registry
-class OperationNoLongerAvailableMessage(AvroEventPayload):
+@add_to_registry
+class OperationNoLongerAvailableMessage(AvroMessageMixin):
     """
     TODO
 

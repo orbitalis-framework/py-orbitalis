@@ -1,15 +1,14 @@
 import asyncio
-import json
 import logging
 from abc import ABC
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Set, Coroutine, Tuple
+from typing import Dict, List, Optional, Any, Set
 from busline.client.pubsub_client import PubTopicSubClient
 import uuid
 
-from busline.client.subscriber.topic_subscriber.event_handler import event_handler
+from busline.client.subscriber.event_handler import event_handler
 from busline.event.event import Event
 from orbitalis.events.close_connection import GracefulCloneConnectionMessage, GracelessCloneConnectionMessage, \
     CloseConnectionAckMessage

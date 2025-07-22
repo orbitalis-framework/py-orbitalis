@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
-from typing import override, Dict, List, Tuple, Optional, Any
-from abc import ABC
-from dataclasses import dataclass, field
+from typing import override, List, Optional, Any
+from dataclasses import dataclass
 
-from datetime import datetime
 from uuid import uuid4
 
-from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler, event_handler
+from busline.client.subscriber.event_handler import event_handler
 from busline.event.event import Event
 from orbitalis.core.need import Constraint
 from orbitalis.events.discover import DiscoverMessage
@@ -19,7 +16,7 @@ from orbitalis.events.response import ConfirmConnectionMessage, OperationNoLonge
 from orbitalis.orbiter.connection import Connection
 from orbitalis.orbiter.orbiter import Orbiter
 from orbitalis.orbiter.pending_request import PendingRequest
-from orbitalis.plugin.operation import Operation, OperationsProviderMixin
+from orbitalis.plugin.operation import OperationsProviderMixin
 from orbitalis.plugin.state import PluginState
 from orbitalis.state_machine.state_machine import StateMachine
 
@@ -395,7 +392,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
             await self._reject_event_handler(topic, event)
 
         else:
-            raise ValueError("Unexpected reply payload")
+            raise ValueError("Unexpected reply message")
 
     def __str__(self):
         return f"Plugin('{self.identifier}')"

@@ -1,18 +1,14 @@
-from dataclasses import dataclass, field
-from typing import Dict, Optional, List
+from dataclasses import dataclass
+from typing import Dict
 
-from dataclasses_avroschema import AvroModel
-
-from busline.event.registry import registry
-from busline.event.avro_payload import AvroEventPayload
+from busline.event.registry import add_to_registry
+from busline.event.message.avro_message import AvroMessageMixin
 from orbitalis.core.need import Constraint
-from orbitalis.utils.allowblocklist import AllowBlockListMixin
-
 
 
 @dataclass(frozen=True)
-@registry
-class DiscoverMessage(AvroEventPayload):
+@add_to_registry
+class DiscoverMessage(AvroMessageMixin):
     """
     Core --- discover ---> Plugin
 

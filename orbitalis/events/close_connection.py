@@ -1,21 +1,17 @@
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Dict, Optional, List, TypeVar, Generic
+from dataclasses import dataclass
+from typing import Optional, TypeVar, Generic
 
 from dataclasses_avroschema import AvroModel
 
-from busline.event.registry import registry
-from busline.event.avro_payload import AvroEventPayload
-from orbitalis.core.need import Constraint
-from orbitalis.utils.allowblocklist import AllowBlockListMixin
-
+from busline.event.registry import add_to_registry
+from busline.event.message.avro_message import AvroMessageMixin
 
 D = TypeVar('D', bound=AvroModel)
 
 
 @dataclass(frozen=True, kw_only=True)
-@registry
-class GracelessCloneConnectionMessage(AvroEventPayload, Generic[D]):
+@add_to_registry
+class GracelessCloneConnectionMessage(AvroMessageMixin, Generic[D]):
     """
     Orbiter A --- close ---> Orbiter B
 
@@ -30,8 +26,8 @@ class GracelessCloneConnectionMessage(AvroEventPayload, Generic[D]):
 
 
 @dataclass(frozen=True, kw_only=True)
-@registry
-class GracefulCloneConnectionMessage(AvroEventPayload, Generic[D]):
+@add_to_registry
+class GracefulCloneConnectionMessage(AvroMessageMixin, Generic[D]):
     """
     Orbiter A --- close ---> Orbiter B
 
@@ -47,8 +43,8 @@ class GracefulCloneConnectionMessage(AvroEventPayload, Generic[D]):
 
 
 @dataclass(frozen=True, kw_only=True)
-@registry
-class CloseConnectionAckMessage(AvroEventPayload, Generic[D]):
+@add_to_registry
+class CloseConnectionAckMessage(AvroMessageMixin, Generic[D]):
     """
     Orbiter A <--- close ack --- Orbiter B
 

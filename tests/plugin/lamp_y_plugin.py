@@ -2,21 +2,21 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import override
 
-from busline.event.avro_payload import AvroEventPayload
+from busline.event.message.avro_message import AvroMessageMixin
 from busline.event.event import Event
-from orbitalis.orbiter.schemaspec import SchemaSpec, Input
-from orbitalis.plugin.operation import Policy, operation
+from orbitalis.orbiter.schemaspec import Input
+from orbitalis.plugin.operation import operation
 from tests.plugin.lamp_plugin import LampPlugin, LampStatus
 
 @dataclass(frozen=True)
-class TurnOnLampYMessage(AvroEventPayload):
+class TurnOnLampYMessage(AvroMessageMixin):
     power: float = field(default=1)
 
     def __post_init__(self):
         assert 0 < self.power <= 1
 
 @dataclass(frozen=True)
-class TurnOffLampYMessage(AvroEventPayload):
+class TurnOffLampYMessage(AvroMessageMixin):
     reset_consumption: bool = field(default=False)
 
 

@@ -1,11 +1,9 @@
-import functools
 import inspect
-from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Self, Any
+from typing import Dict, Self, Any
 
-from busline.client.subscriber.topic_subscriber.event_handler import event_handler
-from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
+from busline.client.subscriber.event_handler import event_handler
+from busline.client.subscriber.event_handler.event_handler import EventHandler
 
 
 @dataclass(kw_only=True)

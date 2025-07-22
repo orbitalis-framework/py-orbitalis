@@ -1,14 +1,11 @@
-import functools
 import inspect
 from abc import ABC
-from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Awaitable, Callable, List, Type, Self, Any
+from typing import Optional, Dict, Self, Any
 
-from busline.client.subscriber.topic_subscriber.event_handler import event_handler
-from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
-from busline.event.event import Event
-from orbitalis.orbiter.schemaspec import SchemaSpec, Inputs, Outputs, Input, Output
+from busline.client.subscriber.event_handler import event_handler
+from busline.client.subscriber.event_handler.event_handler import EventHandler
+from orbitalis.orbiter.schemaspec import Input, Output
 from orbitalis.utils.allowblocklist import AllowBlockListMixin
 
 

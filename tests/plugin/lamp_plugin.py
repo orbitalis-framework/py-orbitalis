@@ -4,15 +4,15 @@ from enum import StrEnum
 from datetime import datetime
 from typing import Optional
 
-from busline.event.avro_payload import AvroEventPayload
+from busline.event.message.avro_message import AvroMessageMixin
 from busline.event.event import Event
-from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output
-from orbitalis.plugin.operation import operation, Policy
+from orbitalis.orbiter.schemaspec import Input, Output
+from orbitalis.plugin.operation import operation
 from orbitalis.plugin.plugin import Plugin
 
 
 @dataclass
-class StatusMessage(AvroEventPayload):
+class StatusMessage(AvroMessageMixin):
     plugin_identifier: str
     status: str
     created_at: datetime = None

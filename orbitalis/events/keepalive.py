@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 
-from busline.event.avro_payload import AvroEventPayload
-from busline.event.registry import registry
+from busline.event.message.avro_message import AvroMessageMixin
+from busline.event.registry import add_to_registry
 
 
 @dataclass(frozen=True, kw_only=True)
-@registry
-class KeepaliveRequestMessage(AvroEventPayload):
+@add_to_registry
+class KeepaliveRequestMessage(AvroMessageMixin):
     """
     Orbiter A --- keepalive_request ---> Orbiter B
 
@@ -20,8 +20,8 @@ class KeepaliveRequestMessage(AvroEventPayload):
 
 
 @dataclass(frozen=True, kw_only=True)
-@registry
-class KeepaliveMessage(AvroEventPayload):
+@add_to_registry
+class KeepaliveMessage(AvroMessageMixin):
     """
     Orbiter A <--- keepalive --- Orbiter B
 

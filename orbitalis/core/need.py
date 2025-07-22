@@ -1,10 +1,8 @@
 from dataclasses import dataclass, field
-from typing import Optional, Set, Dict, List, Any, TypeVar, Generic, Self
+from typing import Optional, List
 
-from dataclasses_avroschema import AvroModel
-
-from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
-from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output, Inputs, Outputs
+from busline.client.subscriber.event_handler.event_handler import EventHandler
+from orbitalis.orbiter.schemaspec import Inputs, Outputs
 from orbitalis.utils.allowblocklist import AllowBlockListMixin
 
 

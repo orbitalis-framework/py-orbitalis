@@ -1,22 +1,16 @@
 import asyncio
 import unittest
-from typing import Any
 
-from busline.event.avro_payload import AvroEventPayload
 from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
 
-from busline.event.event import Event
 from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
-from orbitalis.core.core import Core
-from dataclasses import dataclass, field
 
 from orbitalis.core.need import Constraint, Need
-from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output
+from orbitalis.orbiter.schemaspec import Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
 from tests.plugin.lamp_plugin import StatusMessage
 from tests.plugin.lamp_x_plugin import LampXPlugin
-from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnLampYMessage, TurnOffLampYMessage
 
 
 class TestPlugin(unittest.IsolatedAsyncioTestCase):

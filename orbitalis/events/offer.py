@@ -1,10 +1,10 @@
-from dataclasses import dataclass, field
-from typing import Set, Optional, Dict, List
+from dataclasses import dataclass
+from typing import List
 
 from dataclasses_avroschema import AvroModel
 
-from busline.event.registry import registry
-from busline.event.avro_payload import AvroEventPayload
+from busline.event.registry import add_to_registry
+from busline.event.message.avro_message import AvroMessageMixin
 from orbitalis.orbiter.schemaspec import Input, Output
 
 
@@ -15,8 +15,8 @@ class OfferedOperation(AvroModel):
     output: Output
 
 @dataclass(frozen=True)
-@registry
-class OfferMessage(AvroEventPayload):
+@add_to_registry
+class OfferMessage(AvroMessageMixin):
     """
 
     Plugin --- offer ---> Core

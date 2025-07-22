@@ -1,8 +1,7 @@
 import json
 from dataclasses import dataclass, field
-from typing import Optional, List, Type, Self, override
-from abc import abstractmethod
-from busline.event.avro_payload import AvroEventPayload
+from typing import List, Type, Self, override
+from busline.event.message.avro_message import AvroMessageMixin
 
 
 @dataclass(kw_only=True)
@@ -37,7 +36,7 @@ class SchemaSpec:
         return cls(schemas=[], support_empty_schema=False)
 
     @classmethod
-    def from_payload(cls, payload: Type[AvroEventPayload]) -> Self:
+    def from_payload(cls, payload: Type[AvroMessageMixin]) -> Self:
         return cls.from_schema(payload.avro_schema())
 
 

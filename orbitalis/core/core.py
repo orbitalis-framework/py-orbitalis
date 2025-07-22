@@ -1,22 +1,17 @@
 import asyncio
 import copy
 import random
-from abc import abstractmethod, ABC
-from collections import defaultdict
 from datetime import datetime, timedelta
 import logging
 from dataclasses import dataclass, field
-from typing import override, Dict, Set, Optional, List, Tuple
-from uuid import uuid4
-from xxsubtype import bench
+from typing import override, Dict, Set, Optional, List
 
-from busline.client.subscriber.topic_subscriber.event_handler import schemafull_event_handler, event_handler
-from busline.client.subscriber.topic_subscriber.event_handler.event_handler import EventHandler
-from busline.event.avro_payload import AvroEventPayload
+from busline.client.subscriber.event_handler import event_handler
+from busline.client.subscriber.event_handler.event_handler import EventHandler
+from busline.event.message.avro_message import AvroMessageMixin
 from busline.event.event import Event
 from orbitalis.core.sink import SinksProviderMixin
 from orbitalis.core.state import CoreState
-from orbitalis.events.close_connection import GracefulCloneConnectionMessage, GracelessCloneConnectionMessage
 from orbitalis.events.discover import DiscoverMessage
 from orbitalis.events.offer import OfferMessage, OfferedOperation
 from orbitalis.core.need import Constraint, Need
@@ -469,12 +464,12 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             await self._operation_no_longer_available_event_handler(topic, event)
 
         else:
-            raise ValueError("Unexpected reply payload")
+            raise ValueError("Unexpected reply message")
 
         self.update_compliance()
 
 
-    def __check_compatibility_connection_payload(self, connection: Connection, payload: Optional[AvroEventPayload]) -> bool:
+    def __check_compatibility_connection_payload(self, connection: Connection, payload: Optional[AvroMessageMixin]) -> bool:
         if not connection.input.has_input:
             return False
 
@@ -489,8 +484,8 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return False
 
-    async def execute(self, operation_name: str, payload: Optional[AvroEventPayload] = None,
-        /, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None) -> int:
+    async def execute(self, operation_name: str, payload: Optional[AvroMessageMixin] = None,
+                      /, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None) -> int:
         """
         Execute the operation by its name.
 
@@ -529,7 +524,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return len(topics)
 
-    async def sudo_execute(self, topic: str, payload: Optional[AvroEventPayload] = None):
+    async def sudo_execute(self, topic: str, payload: Optional[AvroMessageMixin] = None):
         await self.eventbus_client.publish(topic, payload.into_event() if payload is not None else None)
 
     @override

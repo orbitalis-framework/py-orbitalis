@@ -1,17 +1,14 @@
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List, TypeVar, Generic
+from typing import Optional
 
-from dataclasses_avroschema import AvroModel
-
-from busline.event.registry import registry
-from busline.event.avro_payload import AvroEventPayload
-from orbitalis.core.descriptor import CoreDescriptor
+from busline.event.registry import add_to_registry
+from busline.event.message.avro_message import AvroMessageMixin
 
 
 @dataclass(frozen=True, kw_only=True)
-@registry
-class RequestOperationMessage(AvroEventPayload):
+@add_to_registry
+class RequestOperationMessage(AvroMessageMixin):
     """
     Core --- request ---> Plugin
 
@@ -29,8 +26,8 @@ class RequestOperationMessage(AvroEventPayload):
 
 
 @dataclass(frozen=True, kw_only=True)
-@registry
-class RejectOperationMessage(AvroEventPayload):
+@add_to_registry
+class RejectOperationMessage(AvroMessageMixin):
     """
     Core --- reject ---> Plugin
 
