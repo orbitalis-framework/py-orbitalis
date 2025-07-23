@@ -1,16 +1,13 @@
 import asyncio
 import unittest
 
-from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
-
-from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
-
 from orbitalis.core.need import Constraint, Need
 from orbitalis.orbiter.schemaspec import Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
 from tests.plugin.lamp_plugin import StatusMessage
 from tests.plugin.lamp_x_plugin import LampXPlugin
+from tests.utils import build_new_local_client
 
 
 class TestPlugin(unittest.IsolatedAsyncioTestCase):
@@ -19,11 +16,10 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
     "smart_home1".
     """
 
-
     def setUp(self):
         self.lamp_x_plugin = LampXPlugin(
             identifier="lamp_x_plugin",
-            eventbus_client=LocalPubTopicSubClientBuilder.default(),
+            eventbus_client=build_new_local_client(),
             raise_exceptions=True,
             with_loop=False,
 
@@ -41,7 +37,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.smart_home1 = SmartHomeCore(
             identifier="smart_home1",
-            eventbus_client=LocalPubTopicSubClientBuilder.default(),
+            eventbus_client=build_new_local_client(),
             raise_exceptions=True,
             with_loop=False,
             needed_operations={
@@ -73,7 +69,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.smart_home2 = SmartHomeCore(
             identifier="smart_home2",
-            eventbus_client=LocalPubTopicSubClientBuilder.default(),
+            eventbus_client=build_new_local_client(),
             raise_exceptions=True,
             with_loop=False,
             needed_operations={
@@ -107,16 +103,30 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             self.smart_home1.stop()
         )
 
-    async def test_double_handshake(self):
-        await self.test_simple_handshake()
+        await asyncio.sleep(2)
 
+    async def test_double_handshake(self):
+        self.assertFalse(self.smart_home1.is_compliance())
         self.assertFalse(self.smart_home2.is_compliance())
+
+        await self.lamp_x_plugin.start()
+        await self.smart_home1.start()
+
+        await asyncio.sleep(2)
 
         await self.smart_home2.start()
 
         await asyncio.sleep(2)
 
         self.assertFalse(self.smart_home2.is_compliance())
+
+        await asyncio.gather(
+            self.lamp_x_plugin.stop(),
+            self.smart_home1.stop(),
+            self.smart_home2.stop(),
+        )
+
+        await asyncio.sleep(2)
 
     async def test_core_plugin_life(self):
 
@@ -211,6 +221,13 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(self.smart_home1.is_compliance())
 
+        await asyncio.gather(
+            self.lamp_x_plugin.stop(),
+            self.smart_home1.stop(),
+        )
+
+        await asyncio.sleep(2)
+
 
     async def test_get_status(self):
         self.assertFalse(self.smart_home1.is_compliance())
@@ -225,6 +242,13 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(1)
 
         self.assertTrue(self.lamp_x_plugin.identifier in self.smart_home1.lamp_status)
+
+        await asyncio.gather(
+            self.lamp_x_plugin.stop(),
+            self.smart_home1.stop()
+        )
+
+        await asyncio.sleep(2)
 
     async def test_execute_without_handshake(self):
         await self.smart_home1.execute("get_status", plugin_identifier=self.lamp_x_plugin.identifier)

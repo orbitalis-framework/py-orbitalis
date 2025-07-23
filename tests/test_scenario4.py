@@ -1,15 +1,12 @@
 import asyncio
 import unittest
 
-from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
-
-from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
-
 from orbitalis.core.need import Constraint, Need
 from orbitalis.core.state import CoreState
 from orbitalis.orbiter.schemaspec import Input, Output
 from tests.core.smarthome_core import SmartHomeCore
 from tests.plugin.lamp_x_plugin import LampXPlugin
+from tests.utils import build_new_local_client
 
 
 class TestPlugin(unittest.IsolatedAsyncioTestCase):
@@ -21,7 +18,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.lamp_x_plugin = LampXPlugin(
             identifier="lamp_x_plugin",
-            eventbus_client=LocalPubTopicSubClientBuilder.default(),
+            eventbus_client=build_new_local_client(),
             raise_exceptions=True,
             close_connection_if_unused_after=3,
             pending_requests_expire_after=2,
@@ -38,7 +35,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.smart_home = SmartHomeCore(
             identifier="smart_home",
-            eventbus_client=LocalPubTopicSubClientBuilder.default(),
+            eventbus_client=build_new_local_client(),
             discovering_interval=10,
             consider_others_dead_after=3,
             send_keepalive_before_timelimit=2,

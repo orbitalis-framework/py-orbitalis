@@ -7,7 +7,6 @@ from busline.event.message.avro_message import AvroMessageMixin
 
 
 @dataclass(frozen=True, kw_only=True)
-@add_to_registry
 class ConfirmConnectionMessage(AvroMessageMixin):
     """
 
@@ -24,7 +23,6 @@ class ConfirmConnectionMessage(AvroMessageMixin):
 
 
 @dataclass(frozen=True, kw_only=True)
-@add_to_registry
 class OperationNoLongerAvailableMessage(AvroMessageMixin):
     """
     TODO

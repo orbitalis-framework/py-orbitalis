@@ -37,7 +37,7 @@ class Constraint(AllowBlockListMixin, Inputs, Outputs):
 class Need:
     constraint: Constraint
     override_sink: Optional[EventHandler] = field(default=None, kw_only=True)
-    default_setup_data: Optional[str] = field(default=None, kw_only=True)
+    default_setup_data: Optional[bytes] = field(default=None, kw_only=True)
 
     @property
     def has_override_sink(self) -> bool:

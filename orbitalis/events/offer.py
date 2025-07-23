@@ -15,7 +15,6 @@ class OfferedOperation(AvroModel):
     output: Output
 
 @dataclass(frozen=True)
-@add_to_registry
 class OfferMessage(AvroMessageMixin):
     """
 

@@ -6,12 +6,9 @@ from dataclasses_avroschema import AvroModel
 from busline.event.registry import add_to_registry
 from busline.event.message.avro_message import AvroMessageMixin
 
-D = TypeVar('D', bound=AvroModel)
-
 
 @dataclass(frozen=True, kw_only=True)
-@add_to_registry
-class GracelessCloneConnectionMessage(AvroMessageMixin, Generic[D]):
+class GracelessCloneConnectionMessage(AvroMessageMixin):
     """
     Orbiter A --- close ---> Orbiter B
 
@@ -22,12 +19,11 @@ class GracelessCloneConnectionMessage(AvroMessageMixin, Generic[D]):
 
     from_identifier: str
     operation_name: str
-    data: Optional[D]
+    data: Optional[bytes]
 
 
 @dataclass(frozen=True, kw_only=True)
-@add_to_registry
-class GracefulCloneConnectionMessage(AvroMessageMixin, Generic[D]):
+class GracefulCloseConnectionMessage(AvroMessageMixin):
     """
     Orbiter A --- close ---> Orbiter B
 
@@ -39,12 +35,11 @@ class GracefulCloneConnectionMessage(AvroMessageMixin, Generic[D]):
     from_identifier: str
     operation_name: str
     ack_topic: str
-    data: Optional[D]
+    data: Optional[bytes]
 
 
 @dataclass(frozen=True, kw_only=True)
-@add_to_registry
-class CloseConnectionAckMessage(AvroMessageMixin, Generic[D]):
+class CloseConnectionAckMessage(AvroMessageMixin):
     """
     Orbiter A <--- close ack --- Orbiter B
 

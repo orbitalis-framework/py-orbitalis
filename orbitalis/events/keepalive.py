@@ -5,7 +5,6 @@ from busline.event.registry import add_to_registry
 
 
 @dataclass(frozen=True, kw_only=True)
-@add_to_registry
 class KeepaliveRequestMessage(AvroMessageMixin):
     """
     Orbiter A --- keepalive_request ---> Orbiter B
@@ -20,7 +19,6 @@ class KeepaliveRequestMessage(AvroMessageMixin):
 
 
 @dataclass(frozen=True, kw_only=True)
-@add_to_registry
 class KeepaliveMessage(AvroMessageMixin):
     """
     Orbiter A <--- keepalive --- Orbiter B

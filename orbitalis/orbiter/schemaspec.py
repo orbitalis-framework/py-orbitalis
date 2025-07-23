@@ -1,11 +1,14 @@
 import json
 from dataclasses import dataclass, field
 from typing import List, Type, Self, override
+
+from dataclasses_avroschema import AvroModel
+
 from busline.event.message.avro_message import AvroMessageMixin
 
 
 @dataclass(kw_only=True)
-class SchemaSpec:
+class SchemaSpec(AvroModel):
     """
 
     Author: Nicola Ricciardi
@@ -127,7 +130,7 @@ class Output(SchemaSpec):
 
 
 @dataclass(kw_only=True)
-class Inputs:
+class Inputs(AvroModel):
     inputs: List[Input]
 
     def input_is_compatible(self, input: Input) -> bool:
@@ -142,7 +145,7 @@ class Inputs:
 
 
 @dataclass(kw_only=True)
-class Outputs:
+class Outputs(AvroModel):
     outputs: List[Output]
 
     def output_is_compatible(self, output: Output) -> bool:

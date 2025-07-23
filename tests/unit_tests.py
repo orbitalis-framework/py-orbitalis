@@ -2,9 +2,6 @@ import asyncio
 import unittest
 
 from busline.event.message.avro_message import AvroMessageMixin
-from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
-
-from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
 from dataclasses import dataclass
 
 from orbitalis.core.need import Constraint, Need
@@ -13,6 +10,7 @@ from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
 from tests.plugin.lamp_x_plugin import LampXPlugin
 from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnLampYMessage, TurnOffLampYMessage
+from tests.utils import build_new_local_client
 
 
 @dataclass
@@ -26,7 +24,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.lamp_x_plugin = LampXPlugin(
             identifier="lamp_x_plugin",
-            eventbus_client=LocalPubTopicSubClientBuilder.default(),
+            eventbus_client=build_new_local_client(),
             raise_exceptions=True,
 
             kwh=24      # LampPlugin-specific attribute
@@ -41,7 +39,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.lamp_y_plugin = LampYPlugin(
             identifier="lamp_y_plugin",
-            eventbus_client=LocalPubTopicSubClientBuilder.default(),
+            eventbus_client=build_new_local_client(),
             raise_exceptions=True,
 
             kwh=42
@@ -56,7 +54,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.smart_home = SmartHomeCore(
             identifier="smart_home",
-            eventbus_client=LocalPubTopicSubClientBuilder.default(),
+            eventbus_client=build_new_local_client(),
             raise_exceptions=True,
             needed_operations={
                 "turn_on": Need(Constraint(
@@ -161,7 +159,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await self.smart_home.eventbus_client.publish(
             "turn_off_topic",
-            TurnOffLampYMessage(reset_consumption=True).into_event()
+            TurnOffLampYMessage(reset_consumption=True)
         )
 
         await asyncio.sleep(1)

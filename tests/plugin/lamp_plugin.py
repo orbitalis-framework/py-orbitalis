@@ -73,7 +73,7 @@ class LampPlugin(Plugin, ABC):
 
         await self.eventbus_client.publish(
             connection.output_topic,
-            StatusMessage(self.identifier, str(self.status)).into_event()
+            StatusMessage(self.identifier, str(self.status))
         )
 
         connection.touch()

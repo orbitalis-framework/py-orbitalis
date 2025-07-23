@@ -2,9 +2,11 @@ from dataclasses import dataclass,field
 from abc import ABC
 from typing import Optional, Dict, Set, List, Self
 
+from dataclasses_avroschema import AvroModel
+
 
 @dataclass(kw_only=True)
-class AllowBlockListMixin(ABC):
+class AllowBlockListMixin(AvroModel, ABC):
     """
     allowlist: admitted Orbs (by identifiers)
     blocklist: not admitted Orbs (by identifiers)

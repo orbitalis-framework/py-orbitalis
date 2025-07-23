@@ -1,13 +1,33 @@
 from dataclasses import dataclass
 from typing import Dict
 
+from dataclasses_avroschema import AvroModel
+
 from busline.event.registry import add_to_registry
 from busline.event.message.avro_message import AvroMessageMixin
 from orbitalis.core.need import Constraint
+from orbitalis.orbiter.schemaspec import Outputs, Inputs
+from orbitalis.utils.allowblocklist import AllowBlockListMixin
+
+
+@dataclass
+class DiscoverQuery(AllowBlockListMixin, Inputs, Outputs, AvroModel):
+
+    operation_name: str
+
+    @classmethod
+    def from_constraint(cls, operation_name: str, constraint: Constraint):
+        return cls(
+            operation_name=operation_name,
+            inputs=constraint.inputs,
+            outputs=constraint.outputs,
+            allowlist=constraint.allowlist,
+            blocklist=constraint.blocklist,
+        )
+
 
 
 @dataclass(frozen=True)
-@add_to_registry
 class DiscoverMessage(AvroMessageMixin):
     """
     Core --- discover ---> Plugin
@@ -22,4 +42,4 @@ class DiscoverMessage(AvroMessageMixin):
     core_keepalive_topic: str
     core_keepalive_request_topic: str
     considered_dead_after: float
-    needed_operations: Dict[str, Constraint]   # operation_name => Need
+    queries: Dict[str, DiscoverQuery]   # operation_name => DiscoverQuery

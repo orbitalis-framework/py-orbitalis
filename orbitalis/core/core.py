@@ -12,7 +12,7 @@ from busline.event.message.avro_message import AvroMessageMixin
 from busline.event.event import Event
 from orbitalis.core.sink import SinksProviderMixin
 from orbitalis.core.state import CoreState
-from orbitalis.events.discover import DiscoverMessage
+from orbitalis.events.discover import DiscoverMessage, DiscoverQuery
 from orbitalis.events.offer import OfferMessage, OfferedOperation
 from orbitalis.core.need import Constraint, Need
 from orbitalis.events.reply import RequestOperationMessage, RejectOperationMessage
@@ -74,6 +74,12 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     async def _internal_stop(self, *args, **kwargs):
         await super()._internal_stop(*args, **kwargs)
 
+    @override
+    async def _on_stopped(self, *args, **kwargs):
+        await super()._on_stopped(*args, **kwargs)
+
+        self.state = CoreState.STOPPED
+
     def _on_compliance(self):
         """
         Hook
@@ -91,14 +97,8 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     @override
     async def _on_close_connection(self, connection: Connection):
 
-        topics: List[str] = [
-            connection.incoming_close_connection_topic,
-        ]
-
         if connection.output_topic is not None and connection.output.has_output:
-            topics.append(connection.output_topic)
-
-        await self.eventbus_client.multi_unsubscribe(topics, parallelize=True)
+            await self.eventbus_client.unsubscribe(connection.output_topic)
 
         self.update_compliance()
 
@@ -198,7 +198,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         discover_message = DiscoverMessage(
             core_identifier=self.identifier,
-            needed_operations=needed_operations,
+            queries=dict([(operation_name, DiscoverQuery.from_constraint(operation_name, constraint)) for operation_name, constraint in needed_operations.items()]),
             offer_topic=self.offer_topic,
             core_keepalive_topic=self.keepalive_topic,
             core_keepalive_request_topic=self.keepalive_request_topic,
@@ -209,7 +209,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         await self.eventbus_client.publish(
             self.discover_topic,
-            discover_message.into_event()
+            discover_message
         )
 
         self._last_discover_sent_at = datetime.now()
@@ -241,7 +241,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     def build_operation_output_topic(self, plugin_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{self.identifier}.{plugin_identifier}.output"
 
-    async def _get_setup_data(self, plugin_identifier: str, offered_operation: OfferedOperation) -> Optional[str]:
+    async def _get_setup_data(self, plugin_identifier: str, offered_operation: OfferedOperation) -> Optional[bytes]:
         """
         TODO: doc
         """
@@ -286,7 +286,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 output_topic=output_topic,
                 core_side_close_operation_connection_topic=incoming_close_connection_topic,
                 setup_data=setup_data
-            ).into_event()
+            )
         )
 
 
@@ -298,7 +298,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             RejectOperationMessage(
                 core_identifier=self.identifier,
                 operation_name=offered_operation.name
-            ).into_event()
+            )
         )
 
     async def _on_new_offer(self, offer_message: OfferMessage):
@@ -520,12 +520,12 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             raise ValueError("mode (any/all/identifier) must be specified")
 
 
-        await self.eventbus_client.multi_publish(list(topics), payload.into_event() if payload is not None else Event())
+        await self.eventbus_client.multi_publish(list(topics), payload)
 
         return len(topics)
 
     async def sudo_execute(self, topic: str, payload: Optional[AvroMessageMixin] = None):
-        await self.eventbus_client.publish(topic, payload.into_event() if payload is not None else None)
+        await self.eventbus_client.publish(topic, payload)
 
     @override
     async def _on_loop_start(self):

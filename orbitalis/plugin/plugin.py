@@ -48,7 +48,10 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
             self._reply_event_handler
         )
 
-        await self.subscribe_on_discover()
+        await self.eventbus_client.subscribe(
+            self.discover_topic,
+            self._discover_event_handler
+        )
 
         self.state = PluginState.RUNNING
 
@@ -64,19 +67,16 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         await self.eventbus_client.multi_unsubscribe(topics, parallelize=True)
 
     @override
+    async def _on_stopped(self, *args, **kwargs):
+        await super()._on_stopped(*args, **kwargs)
+
+        self.state = PluginState.STOPPED
+
+    @override
     async def _on_close_connection(self, connection: Connection):
 
-        topics: List[str] = [
-            connection.incoming_close_connection_topic,
-        ]
-
         if connection.input_topic is not None:
-            topics.append(connection.input_topic)
-
-        await self.eventbus_client.multi_unsubscribe(topics, parallelize=True)
-
-    async def subscribe_on_discover(self):
-        await self.eventbus_client.subscribe(self.discover_topic, self._discover_event_handler)
+            await self.eventbus_client.unsubscribe(connection.input_topic)
 
     def can_lend_to_core(self, core_identifier: str, operation_name: str) -> bool:
         if not self.operations[operation_name].policy.is_compatible(core_identifier):
@@ -154,7 +154,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
         offerable_operations: List[str] = []
 
-        for core_needed_operation_name, core_needed_operation_constraint in event.payload.needed_operations.items():
+        for core_needed_operation_name, core_needed_operation_constraint in event.payload.queries.items():
 
             if self.__allow_offer(event.payload.core_identifier, core_needed_operation_name, core_needed_operation_constraint):
                 offerable_operations.append(core_needed_operation_name)
@@ -215,10 +215,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
             await self._on_send_offer(offer_message)
 
-            await self.eventbus_client.publish(
-                topic=offer_topic,
-                event=offer_message.into_event()
-            )
+            await self.eventbus_client.publish(offer_topic, offer_message)
 
         except Exception as e:
             logging.error(f"{self}: {repr(e)}")
@@ -254,14 +251,14 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         except Exception as e:
             logging.warning(f"{self}: pending request ('{event.payload.core_identifier}', '{event.payload.operation_name}') can not be removed")
 
-    async def _setup_operation(self, core_identifier: str, operation_name: str, setup_data: Optional[str]):
+    async def _setup_operation(self, core_identifier: str, operation_name: str, setup_data: Optional[bytes]):
         """
         Hook
 
         TODO: doc
         """
 
-    async def _plug_operation_into_core(self, core_identifier: str, response_topic: str, operation_name: str, setup_data: Optional[Any]):
+    async def _plug_operation_into_core(self, core_identifier: str, response_topic: str, operation_name: str, setup_data: Optional[bytes]):
         """
 
         Return (operation_input_topic, plugin_side_close_operation_connection_topic)
@@ -300,7 +297,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
                     operation_name=operation_name,
                     operation_input_topic=operation_input_topic,
                     plugin_side_close_operation_connection_topic=plugin_side_close_operation_connection_topic
-                ).into_event()
+                )
             )
 
             return operation_input_topic, plugin_side_close_operation_connection_topic
@@ -348,7 +345,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
                         OperationNoLongerAvailableMessage(
                             plugin_identifier=self.identifier,
                             operation_name=operation_name
-                        ).into_event()
+                        )
                     )
 
                 else:
