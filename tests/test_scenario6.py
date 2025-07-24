@@ -9,8 +9,6 @@ from orbitalis.core.core import Core
 from orbitalis.core.need import Constraint, Need
 from orbitalis.core.sink import sink
 from orbitalis.orbiter.schemaspec import Input, Output
-from orbitalis.plugin.operation import Policy
-from tests.plugin.lamp.lamp_plugin import StatusMessage
 from tests.plugin.text_processor.lowercase_text_processor_plugin import LowercaseTextProcessorPlugin
 from tests.utils import build_new_local_client
 

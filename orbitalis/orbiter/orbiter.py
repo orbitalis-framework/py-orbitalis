@@ -638,22 +638,26 @@ class Orbiter(ABC):
 
             connection = connections[0]
 
+            close_connection_to_remote_topic = None
             async with connection.lock:
                 connection.soft_close()
+                close_connection_to_remote_topic = connection.close_connection_to_remote_topic
 
-                ack_topic = self._build_ack_close_topic(remote_identifier, operation_name)
+            ack_topic = self._build_ack_close_topic(remote_identifier, operation_name)
 
-                await self.eventbus_client.subscribe(ack_topic, self._close_connection_ack_event_handler)
+            await self.eventbus_client.subscribe(ack_topic, self._close_connection_ack_event_handler)
 
-                await self.eventbus_client.publish(
-                    connection.close_connection_to_remote_topic,
-                    GracefulCloseConnectionMessage(
-                        from_identifier=self.identifier,
-                        operation_name=operation_name,
-                        ack_topic=ack_topic,
-                        data=data
-                    )
+            assert close_connection_to_remote_topic is not None
+
+            await self.eventbus_client.publish(
+                close_connection_to_remote_topic,
+                GracefulCloseConnectionMessage(
+                    from_identifier=self.identifier,
+                    operation_name=operation_name,
+                    ack_topic=ack_topic,
+                    data=data
                 )
+            )
 
         except Exception as e:
             logging.error(f"{self}: {repr(e)}")
