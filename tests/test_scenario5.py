@@ -9,7 +9,7 @@ from orbitalis.core.state import CoreState
 from orbitalis.orbiter.schemaspec import Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
-from tests.plugin.lamp_x_plugin import LampXPlugin
+from tests.plugin.lamp.lamp_x_plugin import LampXPlugin
 
 
 class TestPlugin(unittest.IsolatedAsyncioTestCase):

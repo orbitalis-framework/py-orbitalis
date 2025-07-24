@@ -6,7 +6,7 @@ from busline.event.message.avro_message import AvroMessageMixin
 from busline.event.event import Event
 from orbitalis.orbiter.schemaspec import Input
 from orbitalis.plugin.operation import operation
-from tests.plugin.lamp_plugin import LampPlugin, LampStatus
+from tests.plugin.lamp.lamp_plugin import LampPlugin, LampStatus
 
 @dataclass(frozen=True)
 class TurnOnLampYMessage(AvroMessageMixin):

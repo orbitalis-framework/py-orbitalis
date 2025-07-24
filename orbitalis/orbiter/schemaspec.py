@@ -39,7 +39,7 @@ class SchemaSpec(AvroModel):
         return cls(schemas=[], support_empty_schema=False)
 
     @classmethod
-    def from_payload(cls, payload: Type[AvroMessageMixin]) -> Self:
+    def from_message(cls, payload: Type[AvroMessageMixin]) -> Self:
         return cls.from_schema(payload.avro_schema())
 
 

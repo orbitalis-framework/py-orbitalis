@@ -102,7 +102,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     @override
     async def _on_close_connection(self, connection: Connection):
 
-        if connection.output_topic is not None and connection.output.has_output:
+        if connection.has_output:
             await self.eventbus_client.unsubscribe(connection.output_topic)
 
         self.update_compliance()
@@ -474,23 +474,23 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         self.update_compliance()
 
 
-    def __check_compatibility_connection_payload(self, connection: Connection, payload: Optional[AvroMessageMixin]) -> bool:
+    def __check_compatibility_connection_payload(self, connection: Connection, message: Optional[AvroMessageMixin]) -> bool:
         if not connection.input.has_input:
             return False
 
-        if payload is None:
+        if message is None:
             if connection.input.support_empty_schema:
                 return True
             else:
                 return False
 
-        if connection.input.is_compatible_with_schema(payload.avro_schema()):
+        if connection.input.is_compatible_with_schema(message.avro_schema()):
             return True
 
         return False
 
-    async def execute(self, operation_name: str, payload: Optional[AvroMessageMixin] = None,
-                      /, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None) -> int:
+    async def execute(self, operation_name: str, data: Optional[AvroMessageMixin] = None,
+                      *, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None) -> int:
         """
         Execute the operation by its name.
 
@@ -510,12 +510,12 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 if connection.remote_identifier != plugin_identifier:
                     continue
 
-                if self.__check_compatibility_connection_payload(connection, payload):
+                if self.__check_compatibility_connection_payload(connection, data):
                     topics.add(connection.input_topic)
 
         elif all or any:
             for connection in connections:
-                if self.__check_compatibility_connection_payload(connection, payload):
+                if self.__check_compatibility_connection_payload(connection, data):
                     topics.add(connection.input_topic)
 
             if any and len(topics) > 0:
@@ -525,7 +525,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             raise ValueError("mode (any/all/identifier) must be specified")
 
 
-        await self.eventbus_client.multi_publish(list(topics), payload)
+        await self.eventbus_client.multi_publish(list(topics), data)
 
         return len(topics)
 

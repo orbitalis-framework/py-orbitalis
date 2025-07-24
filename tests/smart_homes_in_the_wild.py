@@ -8,9 +8,9 @@ from orbitalis.core.need import Need, Constraint
 from orbitalis.orbiter.schemaspec import Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
-from tests.plugin.lamp_plugin import LampPlugin, StatusMessage
-from tests.plugin.lamp_x_plugin import LampXPlugin
-from tests.plugin.lamp_y_plugin import TurnOnLampYMessage, TurnOffLampYMessage, LampYPlugin
+from tests.plugin.lamp.lamp_plugin import LampPlugin, StatusMessage
+from tests.plugin.lamp.lamp_x_plugin import LampXPlugin
+from tests.plugin.lamp.lamp_y_plugin import TurnOnLampYMessage, TurnOffLampYMessage, LampYPlugin
 
 random.seed(42)
 logging.basicConfig(level="INFO")

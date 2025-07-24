@@ -4,8 +4,8 @@ import unittest
 from orbitalis.core.need import Constraint, Need
 from orbitalis.orbiter.schemaspec import Input, Output
 from tests.core.smarthome_core import SmartHomeCore
-from tests.plugin.lamp_x_plugin import LampXPlugin
-from tests.plugin.lamp_y_plugin import LampYPlugin, TurnOnLampYMessage, TurnOffLampYMessage
+from tests.plugin.lamp.lamp_x_plugin import LampXPlugin
+from tests.plugin.lamp.lamp_y_plugin import LampYPlugin, TurnOnLampYMessage, TurnOffLampYMessage
 from tests.utils import build_new_local_client
 
 

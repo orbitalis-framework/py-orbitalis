@@ -24,7 +24,7 @@ class _SinkDescriptor:
         return self.func.__get__(instance, owner)
 
 
-def sink(*, operation_name: str):
+def sink(operation_name: str):
 
     def decorator(func):
         if not inspect.iscoroutinefunction(func):

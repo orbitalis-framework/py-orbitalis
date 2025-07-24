@@ -1,9 +1,8 @@
-from dataclasses import dataclass, field
-from typing import override
+from dataclasses import dataclass
 from busline.event.event import Event
-from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output
-from orbitalis.plugin.operation import Policy, operation
-from tests.plugin.lamp_plugin import LampPlugin, LampStatus
+from orbitalis.orbiter.schemaspec import Input
+from orbitalis.plugin.operation import operation
+from tests.plugin.lamp.lamp_plugin import LampPlugin
 
 
 @dataclass

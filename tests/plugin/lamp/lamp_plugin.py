@@ -59,7 +59,7 @@ class LampPlugin(Plugin, ABC):
     @operation(
         name="get_status",
         input=Input.empty(),
-        output=Output.from_payload(StatusMessage)
+        output=Output.from_message(StatusMessage)
     )
     async def get_status_event_handler(self, topic: str, event: Event):
         connections = self._retrieve_connections(input_topic=topic, operation_name="get_status")

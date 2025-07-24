@@ -5,8 +5,8 @@ from orbitalis.core.need import Constraint, Need
 from orbitalis.orbiter.schemaspec import Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
-from tests.plugin.lamp_plugin import StatusMessage
-from tests.plugin.lamp_x_plugin import LampXPlugin
+from tests.plugin.lamp.lamp_plugin import StatusMessage
+from tests.plugin.lamp.lamp_x_plugin import LampXPlugin
 from tests.utils import build_new_local_client
 
 
@@ -169,7 +169,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         # === CLOSE GRACELESS ===
 
-        await self.smart_home1.graceless_close_connection(self.lamp_x_plugin.identifier, "turn_on")
+        await self.smart_home1.send_graceless_close_connection(self.lamp_x_plugin.identifier, "turn_on")
 
         await asyncio.sleep(1)
 
@@ -180,7 +180,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(self.smart_home1.is_compliance())
 
-        await self.lamp_x_plugin.graceless_close_connection(self.smart_home1.identifier, "turn_off")
+        await self.lamp_x_plugin.send_graceless_close_connection(self.smart_home1.identifier, "turn_off")
 
         await asyncio.sleep(1)
 
@@ -212,7 +212,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         # === CLOSE GRACEFUL ===
 
-        await self.lamp_x_plugin.graceful_close_connection(
+        await self.lamp_x_plugin.send_graceful_close_connection(
             self.smart_home1.identifier,
             "turn_on"
         )

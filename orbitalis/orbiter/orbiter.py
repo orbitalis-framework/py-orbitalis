@@ -26,6 +26,9 @@ DEFAULT_CONSIDERED_DEAD_AFTER = 120.0
 @dataclass(kw_only=True)
 class Orbiter(ABC):
     """
+    Base class which provides common capabilities to components.
+    It manages pending requests, connections, keepalive and connection close procedure.
+    In addiction, it has useful shared methods and main loop.
 
     Author: Nicola Ricciardi
     """
@@ -41,7 +44,7 @@ class Orbiter(ABC):
 
     close_connection_if_unused_after: Optional[float] = field(default=None)
     pending_requests_expire_after: Optional[float] = field(default=DEFAULT_PENDING_REQUESTS_EXPIRE_AFTER)
-    consider_others_dead_after: float = field(default=DEFAULT_CONSIDERED_DEAD_AFTER)
+    consider_others_dead_after: Optional[float] = field(default=DEFAULT_CONSIDERED_DEAD_AFTER)
     send_keepalive_before_timelimit: float = field(default=DEFAULT_SEND_KEEPALIVE_BEFORE_TIMELIMIT)
 
     with_loop: bool = field(default=True)
@@ -98,6 +101,9 @@ class Orbiter(ABC):
 
     @property
     def dead_remote_identifiers(self) -> List[str]:
+        if self.consider_others_dead_after is None:
+            return []
+
         dead = []
         now = datetime.now()
         for remote_identifier, last_seen in self._last_seen.items():
@@ -109,7 +115,7 @@ class Orbiter(ABC):
 
     async def _get_on_close_data(self, remote_identifier: str, operation_name: str) -> Optional[bytes]:
         """
-        TODO
+        Hook used to obtain data to send on close connection, by default None is returned
         """
 
         return None
@@ -125,12 +131,12 @@ class Orbiter(ABC):
 
     async def _on_starting(self, *args, **kwargs):
         """
-        TODO
+        Hook called before starting
         """
 
     async def _internal_start(self, *args, **kwargs):
         """
-        TODO
+        Actual implementation to start the orbiter
         """
 
         await self.eventbus_client.connect()
@@ -151,7 +157,7 @@ class Orbiter(ABC):
 
     async def _on_started(self, *args, **kwargs):
         """
-        TODO
+        Hook called after starting
         """
 
     async def stop(self, *args, **kwargs):
@@ -164,12 +170,12 @@ class Orbiter(ABC):
 
     async def _on_stopping(self, *args, **kwargs):
         """
-        TODO
+        Hook called before stopping
         """
 
     async def _internal_stop(self, *args, **kwargs):
         """
-        TODO
+        Actual implementation to stop the orbiter
         """
 
         tasks = []
@@ -186,7 +192,7 @@ class Orbiter(ABC):
         for connection in self._all_connections:
             tasks.append(
                 asyncio.create_task(
-                    self.graceless_close_connection(
+                    self.send_graceless_close_connection(
                         remote_identifier=connection.remote_identifier,
                         operation_name=connection.operation_name,
                         data=await self._get_on_close_data(connection.remote_identifier, connection.operation_name)
@@ -200,7 +206,7 @@ class Orbiter(ABC):
 
     async def _on_stopped(self, *args, **kwargs):
         """
-        TODO
+        Hook called after stopping
         """
 
     def _connections_by_remote_identifier(self, remote_identifier: str) -> Dict[str, Connection]:
@@ -238,6 +244,9 @@ class Orbiter(ABC):
 
 
     def _retrieve_connections(self, *, remote_identifier: Optional[str] = None, input_topic: Optional[str] = None, output_topic: Optional[str] = None, operation_name: Optional[str] = None) -> List[Connection]:
+        """
+        Retrieve all connections which satisfy query
+        """
 
         connections: List[Connection] = []
 
@@ -263,7 +272,7 @@ class Orbiter(ABC):
 
     def _on_promote_pending_request_to_connection(self, pending_request: PendingRequest):
         """
-        TODO: doc
+        Hook called before promotion
         """
 
     def _promote_pending_request_to_connection(self, pending_request: PendingRequest):
@@ -282,8 +291,7 @@ class Orbiter(ABC):
 
     async def discard_expired_pending_requests(self) -> int:
         """
-        Remove from pending requests expired requests based on datetime provided or seconds elapsed.
-        Seconds override expiration_date.
+        Remove expired pending requests.
         Return total amount of discarded requests
         """
 
@@ -313,7 +321,7 @@ class Orbiter(ABC):
 
     async def close_unused_connections(self) -> int:
         """
-
+        Send a graceful close request to all remote orbiter if connection was unused based on close_connection_if_unused_after
         """
 
         try:
@@ -328,15 +336,15 @@ class Orbiter(ABC):
             closed = 0
             for remote_identifier, of_operation in self._connections.items():
                 for operation_name, connection in of_operation.items():
-                    if (connection.created_at + timedelta(
-                            seconds=self.close_connection_if_unused_after)) < datetime.now():
+                    expiration= connection.created_at + timedelta(seconds=self.close_connection_if_unused_after)
+                    if expiration < datetime.now():
                         to_close.append(connection)
 
             tasks = []
             for connection in to_close:
                 tasks.append(
                     asyncio.create_task(
-                        self.graceful_close_connection(connection.remote_identifier, connection.operation_name)
+                        self.send_graceful_close_connection(connection.remote_identifier, connection.operation_name)
                     )
                 )
                 closed += 1
@@ -357,12 +365,20 @@ class Orbiter(ABC):
 
     def update_acquaintances(self, remote_identifier: str,
         *, keepalive_topic: str, keepalive_request_topic: str, consider_me_dead_after: float):
+        """
+        Update knowledge about keepalive request topics, keepalive topics and dead time
+        """
 
         self._remote_keepalive_request_topics[remote_identifier] = keepalive_request_topic
 
         self._remote_keepalive_topics[remote_identifier] = keepalive_topic
 
+        self._others_considers_me_dead_after[remote_identifier] = consider_me_dead_after
+
     def have_seen(self, remote_identifier: str, *, when: Optional[datetime] = None):
+        """
+        Update last seen for remote orbiter
+        """
 
         if when is None:
             when = datetime.now()
@@ -374,7 +390,7 @@ class Orbiter(ABC):
 
     async def _on_keepalive_request(self, from_identifier: str):
         """
-        TODO: doc
+        Hook called on keepalive request, before response
         """
 
     @event_handler
@@ -394,7 +410,7 @@ class Orbiter(ABC):
 
     async def _on_keepalive(self, from_identifier: str):
         """
-        TODO: doc
+        Hook called on inbound keepalive
         """
 
     @event_handler
@@ -434,6 +450,10 @@ class Orbiter(ABC):
         )
 
     async def send_all_keepalive_based_on_connections(self):
+        """
+        Send keepalive messages to all remote orbiters which have a connection with this orbiter
+        """
+
         tasks = []
         for remote_identifier, operations in self._connections.values():
             if len(operations) > 0 and remote_identifier in self._remote_keepalive_topics:
@@ -444,6 +464,11 @@ class Orbiter(ABC):
         await asyncio.gather(*tasks)
 
     async def send_keepalive_based_on_connections_and_threshold(self):
+        """
+        Send keepalive messages to all remote orbiters which have a connection with this orbiter only if
+        send_keepalive_before_timelimit seconds away from being considered dead this orbiter
+        """
+
         tasks = []
 
         for remote_identifier in self._connections.keys():
@@ -464,8 +489,7 @@ class Orbiter(ABC):
                 seconds=self._others_considers_me_dead_after[remote_identifier])
 
             if (considered_dead_at - datetime.now()).seconds < 0:
-                logging.warning(
-                    f"{self}: {remote_identifier} could be flag me as dead, anyway keepalive sending is tried")
+                logging.warning(f"{self}: {remote_identifier} could be flag me as dead, anyway keepalive will be sent")
 
             assert 0 <= self.send_keepalive_before_timelimit, "send_keepalive_threshold_multiplier must be >= 0"
 
@@ -483,7 +507,11 @@ class Orbiter(ABC):
     def build_incoming_close_connection_topic(self, remote_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{self.identifier}.{remote_identifier}.close"
 
-    async def graceless_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[bytes] = None):
+    async def send_graceless_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[bytes] = None):
+        """
+        Send a graceless close connection request to specified remote orbiter. Therefore, self side connection will be closed immediately
+        """
+
         try:
 
             await self._on_graceless_close_connection(remote_identifier, operation_name, data)
@@ -510,15 +538,19 @@ class Orbiter(ABC):
 
     async def _on_graceless_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[bytes]):
         """
-        TODO: doc
+        Hook called before graceless close connection request is sent
         """
 
     async def _on_close_connection(self, connection: Connection):
         """
-        TODO: doc
+        Hook called when a connection is closed
         """
 
     async def _close_self_side_connection(self, remote_identifier: str, operation_name: str):
+        """
+        Close local connection with remote orbiter, therefore only this orbiter will no longer be able to use connection.
+        Generally, a close connection request was sent before this method call.
+        """
 
         connection = self._connections[remote_identifier][operation_name]
 
@@ -542,7 +574,11 @@ class Orbiter(ABC):
     def build_ack_close_topic(self, remote_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{self.identifier}.{remote_identifier}.close.ack"
 
-    async def graceful_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[bytes] = None):
+    async def send_graceful_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[bytes] = None):
+        """
+        Send a graceful close connection request to specified remote orbiter, therefore self side connection is not close immediately, but ACK is waited
+        """
+
         try:
             await self._on_graceful_close_connection(remote_identifier, operation_name, data)
 
@@ -577,10 +613,10 @@ class Orbiter(ABC):
 
     async def _on_graceful_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[bytes]):
         """
-        TODO: doc
+        Hook called before sending graceful close connection request
         """
 
-    async def _graceful_close_connection_event_handler(self, topic: str, close_connection_message: GracefulCloseConnectionMessage):
+    async def _graceful_close_connection(self, topic: str, close_connection_message: GracefulCloseConnectionMessage):
         await self._on_graceful_close_connection(
             close_connection_message.from_identifier,
             close_connection_message.operation_name,
@@ -617,7 +653,7 @@ class Orbiter(ABC):
     async def _close_connection_event_handler(self, topic: str, event: Event[GracefulCloseConnectionMessage | GracelessCloneConnectionMessage]):
         try:
             if isinstance(event.payload, GracefulCloseConnectionMessage):
-                await self._graceful_close_connection_event_handler(topic, event.payload)
+                await self._graceful_close_connection(topic, event.payload)
 
             elif isinstance(event.payload, GracelessCloneConnectionMessage):
                 await self._on_graceless_close_connection(
@@ -644,22 +680,22 @@ class Orbiter(ABC):
 
     async def _on_loop_start(self):
         """
-        TODO: doc
+        Hook called on loop start
         """
 
     async def _on_new_loop_iteration(self):
         """
-        TODO: doc
+        Hook called before every loop iteration
         """
 
     async def _on_loop_iteration_end(self):
         """
-        TODO: doc
+        Hook called at the end of every loop iteration
         """
 
     async def _on_loop_iteration(self):
         """
-        TODO: doc
+        Hook called during every loop iteration
         """
 
     async def _loop(self):

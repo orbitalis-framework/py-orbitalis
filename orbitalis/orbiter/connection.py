@@ -40,6 +40,14 @@ class Connection:
     created_at: datetime = field(default_factory=lambda: datetime.now())
     last_use: Optional[datetime] = field(default=None)
 
+    @property
+    def has_input(self) -> bool:
+        return self.input_topic is not None
+
+    @property
+    def has_output(self) -> bool:
+        return self.output_topic is not None
+
     def touch(self):
         """
         TODO: doc "why?"

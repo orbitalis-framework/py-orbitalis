@@ -55,6 +55,10 @@ class _OperationDescriptor:
 
 
 def operation(*, input: Optional[Input] = None, default_policy: Optional[Policy] = None, output: Optional[Output] = None, name: Optional[str] = None):
+    """
+    Transform a function of a method in an operation and append it to operations provider
+    """
+
 
     if input is None:
         input = Input.no_input()

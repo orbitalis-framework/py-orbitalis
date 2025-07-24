@@ -9,7 +9,7 @@ from uuid import uuid4
 from busline.client.subscriber.event_handler import event_handler
 from busline.event.event import Event
 from orbitalis.core.need import Constraint
-from orbitalis.events.discover import DiscoverMessage
+from orbitalis.events.discover import DiscoverMessage, DiscoverQuery
 from orbitalis.events.offer import OfferMessage, OfferedOperation
 from orbitalis.events.reply import RejectOperationMessage, RequestOperationMessage
 from orbitalis.events.response import ConfirmConnectionMessage, OperationNoLongerAvailableMessage
@@ -24,8 +24,7 @@ from orbitalis.state_machine.state_machine import StateMachine
 @dataclass(kw_only=True)
 class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
     """
-
-    TODO: a way to provide dynamic policies for operations
+    Component which provides a set of operations.
 
     Author: Nicola Ricciardi
     """
@@ -75,7 +74,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
     @override
     async def _on_close_connection(self, connection: Connection):
 
-        if connection.input_topic is not None:
+        if connection.has_input:
             await self.eventbus_client.unsubscribe(connection.input_topic)
 
     def can_lend_to_core(self, core_identifier: str, operation_name: str) -> bool:
@@ -87,12 +86,12 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
         return False
 
-    def __allow_offer(self, core_identifier: str, core_needed_operation_name: str, core_needed_operation_constraint: Constraint) -> bool:
+    def __allow_offer(self, core_identifier: str, core_needed_operation_name: str, core_discover_query: DiscoverQuery) -> bool:
         if core_needed_operation_name not in self.operations:
             return False
 
         # check compatibility with block/allow list
-        if not core_needed_operation_constraint.is_compatible(self.identifier):
+        if not core_discover_query.is_compatible(self.identifier):
             return False
 
         # check if already in pending request
@@ -118,11 +117,11 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
                 return False
 
         # check input_schemas compatibility
-        if not core_needed_operation_constraint.input_is_compatible(self.operations[core_needed_operation_name].input):
+        if not core_discover_query.input_is_compatible(self.operations[core_needed_operation_name].input):
             return False
 
         # check output_schemas compatibility
-        if not core_needed_operation_constraint.output_is_compatible(self.operations[core_needed_operation_name].output):
+        if not core_discover_query.output_is_compatible(self.operations[core_needed_operation_name].output):
             return False
 
         if not self.can_lend_to_core(core_identifier, core_needed_operation_name):
@@ -132,7 +131,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
     async def _on_new_discover(self, discover_message: DiscoverMessage):
         """
-        TODO: doc
+        Hook called when a new discover message arrives
         """
 
     @event_handler
@@ -173,10 +172,13 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
     async def _on_send_offer(self, offer_message: OfferMessage):
         """
-        TODO: doc
+        Hook called before offer is sent
         """
 
     async def send_offer(self, offer_topic: str, core_identifier: str, offerable_operations: List[str]):
+        """
+        Send a new offer message in given topic to given core identifier
+        """
 
         if len(offerable_operations) == 0:
             return
@@ -232,7 +234,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
     async def _on_reject(self, message: RejectOperationMessage):
         """
-        TODO: doc
+        Hook called when a reject message arrives
         """
 
     async def _reject_event_handler(self, topic: str, event: Event[RejectOperationMessage]):
@@ -253,9 +255,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
     async def _setup_operation(self, core_identifier: str, operation_name: str, setup_data: Optional[bytes]):
         """
-        Hook
-
-        TODO: doc
+        Hook called to set up operation when connection is created
         """
 
     async def _plug_operation_into_core(self, core_identifier: str, response_topic: str, operation_name: str, setup_data: Optional[bytes]):
@@ -311,7 +311,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
     async def _on_request(self, message: RequestOperationMessage):
         """
-        TODO: doc
+        Hook called when a new request message arrives
         """
 
     async def _request_operation_event_handler(self, topic: str, event: Event[RequestOperationMessage]):
@@ -373,7 +373,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
     async def _on_reply(self):
         """
-        TODO: doc
+        Hook called when a new reply message arrives
         """
 
     @event_handler
