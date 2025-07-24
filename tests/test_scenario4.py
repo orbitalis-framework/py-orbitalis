@@ -60,7 +60,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_discard_in_loop(self):
-        self.assertFalse(self.smart_home.is_compliance())
+        self.assertFalse(self.smart_home.is_compliant())
         await self.lamp_x_plugin.start()
         await self.smart_home.start()
 
@@ -70,7 +70,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(self.lamp_x_plugin._connections[self.smart_home.identifier]), 2)
         self.assertEqual(len(self.smart_home._connections[self.lamp_x_plugin.identifier]), 2)
-        self.assertTrue(self.smart_home.is_compliance())
+        self.assertTrue(self.smart_home.is_compliant())
         self.assertEqual(self.smart_home.state, CoreState.COMPLIANT)
 
         await asyncio.sleep(3)
@@ -79,7 +79,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(self.lamp_x_plugin._connections[self.smart_home.identifier]), 0)
         self.assertEqual(len(self.smart_home._connections[self.lamp_x_plugin.identifier]), 0)
-        self.assertFalse(self.smart_home.is_compliance())
+        self.assertFalse(self.smart_home.is_compliant())
 
         self.lamp_x_plugin.pending_requests_expire_after = None
         self.lamp_x_plugin.close_connection_if_unused_after = None
@@ -93,7 +93,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.lamp_x_plugin._connections[self.smart_home.identifier]), 2)
         self.assertEqual(len(self.smart_home._connections[self.lamp_x_plugin.identifier]), 2)
         self.assertEqual(self.smart_home.state, CoreState.COMPLIANT)
-        self.assertTrue(self.smart_home.is_compliance())
+        self.assertTrue(self.smart_home.is_compliant())
 
 
     async def test_send_keepalive(self):

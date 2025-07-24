@@ -18,8 +18,8 @@ class _SinkDescriptor:
         if instance is None:
             return self
 
-        if self.operation_name not in instance.operation_sink:
-            instance.operation_sink[self.operation_name] = self.func.__get__(instance, owner)
+        if self.operation_name not in instance.operation_sinks:
+            instance.operation_sinks[self.operation_name] = self.func.__get__(instance, owner)
 
         return self.func.__get__(instance, owner)
 
@@ -43,15 +43,15 @@ def sink(operation_name: str):
 @dataclass(kw_only=True)
 class SinksProviderMixin:
 
-    operation_sink: Dict[str, EventHandler] = field(default_factory=dict, init=False)    # operation_name => EventHandler
-
-    def with_operation_sink(self, operation_name: str, handler: EventHandler) -> Self:
-
-        self.operation_sink[operation_name] = handler
-
-        return self
+    operation_sinks: Dict[str, EventHandler] = field(default_factory=dict, init=False)    # operation_name => EventHandler
 
     def __post_init__(self):
         # used to refresh sinks
         for attr_name in dir(self):
             _ = getattr(self, attr_name)
+
+    def with_operation_sink(self, operation_name: str, handler: EventHandler) -> Self:
+
+        self.operation_sinks[operation_name] = handler
+
+        return self

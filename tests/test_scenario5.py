@@ -58,14 +58,14 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             }
         )
         
-        self.assertFalse(smart_home.is_compliance())
+        self.assertFalse(smart_home.is_compliant())
 
         await lamp_x_plugin.start()
         await smart_home.start()
 
         await asyncio.sleep(2)
 
-        self.assertTrue(smart_home.is_compliance())
+        self.assertTrue(smart_home.is_compliant())
         self.assertEqual(smart_home.state, CoreState.COMPLIANT)
 
         lamp_x_plugin.turn_off()

@@ -276,6 +276,10 @@ class Orbiter(ABC):
         """
 
     def _promote_pending_request_to_connection(self, pending_request: PendingRequest):
+        """
+        Transform a pending request into a connection
+        """
+
         try:
 
             self._on_promote_pending_request_to_connection(pending_request)
@@ -504,7 +508,7 @@ class Orbiter(ABC):
         await asyncio.gather(*tasks)
 
 
-    def build_incoming_close_connection_topic(self, remote_identifier: str, operation_name: str) -> str:
+    def _build_incoming_close_connection_topic(self, remote_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{self.identifier}.{remote_identifier}.close"
 
     async def send_graceless_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[bytes] = None):
@@ -571,7 +575,7 @@ class Orbiter(ABC):
 
         return connection
 
-    def build_ack_close_topic(self, remote_identifier: str, operation_name: str) -> str:
+    def _build_ack_close_topic(self, remote_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{self.identifier}.{remote_identifier}.close.ack"
 
     async def send_graceful_close_connection(self, remote_identifier: str, operation_name: str, data: Optional[bytes] = None):
@@ -591,7 +595,7 @@ class Orbiter(ABC):
 
             connection = connections[0]
 
-            ack_topic = self.build_ack_close_topic(remote_identifier, operation_name)
+            ack_topic = self._build_ack_close_topic(remote_identifier, operation_name)
 
             await self.eventbus_client.subscribe(ack_topic, self._close_connection_ack_event_handler)
 

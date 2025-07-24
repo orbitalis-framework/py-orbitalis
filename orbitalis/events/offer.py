@@ -20,6 +20,9 @@ class OfferMessage(AvroMessageMixin):
 
     Plugin --- offer ---> Core
 
+    Message used by plugins to response to discover message, providing their base information and a list of offered operations.
+    List of offered operations can be smaller than fullset provided by discover
+
     Author: Nicola Ricciardi
     """
 

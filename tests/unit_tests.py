@@ -72,7 +72,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             }
         )
 
-        self.assertTrue("get_status" in self.smart_home.operation_sink)
+        self.assertTrue("get_status" in self.smart_home.operation_sinks)
 
     async def test_schemaspec_compatibility(self):
         self.assertTrue(
@@ -177,7 +177,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(2)
 
-        self.assertTrue(self.smart_home.is_compliance())
+        self.assertTrue(self.smart_home.is_compliant())
 
         self.assertTrue(self.lamp_x_plugin.identifier in self.smart_home._last_seen)
 

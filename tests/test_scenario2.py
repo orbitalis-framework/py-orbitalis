@@ -76,22 +76,22 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_handshake(self):
-        self.assertFalse(self.smart_home1.is_compliance())
+        self.assertFalse(self.smart_home1.is_compliant())
 
         await self.lamp_x_plugin.start()
         await self.smart_home1.start()
 
         await asyncio.sleep(2)
 
-        self.assertTrue(self.smart_home1.is_compliance())
+        self.assertTrue(self.smart_home1.is_compliant())
 
-        self.assertFalse(self.smart_home2.is_compliance())
+        self.assertFalse(self.smart_home2.is_compliant())
 
         await self.smart_home2.start()
 
         await asyncio.sleep(2)
 
-        self.assertTrue(self.smart_home2.is_compliance())
+        self.assertTrue(self.smart_home2.is_compliant())
 
         await self.lamp_x_plugin.stop()
         await self.smart_home1.stop()

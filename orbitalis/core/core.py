@@ -26,7 +26,7 @@ from orbitalis.state_machine.state_machine import StateMachine
 @dataclass(kw_only=True)
 class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     """
-
+    Component which connects itself to plugins, in order to be able to execute their operations.
 
     Author: Nicola Ricciardi
     """
@@ -71,7 +71,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 handler=self._offer_event_handler
             )
 
-        self.update_compliance()
+        self.update_compliant()
 
         await self.send_discover_based_on_needs()
 
@@ -85,18 +85,14 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         self.state = CoreState.STOPPED
 
-    def _on_compliance(self):
+    def _on_compliant(self):
         """
-        Hook
-
-        TODO: doc
+        Hook called when core becomes compliant
         """
 
-    def _on_not_compliance(self):
+    def _on_not_compliant(self):
         """
-        Hook
-
-        TODO: doc
+        Hook called when core becomes not compliant
         """
 
     @override
@@ -105,9 +101,12 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         if connection.has_output:
             await self.eventbus_client.unsubscribe(connection.output_topic)
 
-        self.update_compliance()
+        self.update_compliant()
 
     def current_constraint_for_operation(self, operation_name: str) -> Constraint:
+        """
+        Return current constraint for operation based on current connections
+        """
 
         if operation_name not in self.needed_operations.keys():
             raise KeyError(f"operation {operation_name} is not required")
@@ -126,7 +125,11 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return constraint
 
-    def is_compliance_for_operation(self, operation_name: str) -> bool:
+    def is_compliant_for_operation(self, operation_name: str) -> bool:
+        """
+        Evaluate at run-time if core is compliant for given operation based on its configuration. It may be a time-consuming operation
+        """
+
         need = self.current_constraint_for_operation(operation_name)
 
         if need.mandatory is not None and len(need.mandatory) > 0:
@@ -137,41 +140,51 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return True
 
-    def is_compliance(self) -> bool:
+    def is_compliant(self) -> bool:
+        """
+        Evaluate at run-time if core is global compliant based on its configuration. It may be a very time-consuming operation
+        """
 
         for operation_name in self.needed_operations.keys():
-            if not self.is_compliance_for_operation(operation_name):
+            if not self.is_compliant_for_operation(operation_name):
                 return False
 
         return True
 
-    def update_compliance(self):
+    def update_compliant(self):
+        """
+        Use `is_compliant` to update core's state
+        """
 
         if self.state == CoreState.CREATED:
 
-            if self.is_compliance():
+            if self.is_compliant():
                 self.state = CoreState.COMPLIANT
-                self._on_compliance()
+                self._on_compliant()
                 return
 
             else:
                 self.state = CoreState.NOT_COMPLIANT
-                self._on_not_compliance()
+                self._on_not_compliant()
                 return
 
         before_was_compliance = self.state == CoreState.COMPLIANT
-        now_is_compliance = self.is_compliance()
+        now_is_compliance = self.is_compliant()
 
         if before_was_compliance and not now_is_compliance:
-            self._on_not_compliance()
+            self._on_not_compliant()
             self.state = CoreState.NOT_COMPLIANT
 
         elif not before_was_compliance and now_is_compliance:
-            self._on_compliance()
+            self._on_compliant()
             self.state = CoreState.COMPLIANT
 
 
-    def operation_to_discover(self) -> Dict[str, Constraint]:
+    def _operation_to_discover(self) -> Dict[str, Constraint]:
+        """
+        Return a dictionary `operation_name` => `not_satisfied_need`, based on current connections. This operations should be discover
+        """
+
         needed_operations: Dict[str, Constraint] = {}
         for operation_name in self.needed_operations.keys():
             not_satisfied_need = self.current_constraint_for_operation(operation_name)
@@ -188,7 +201,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
     async def _on_send_discover(self, discover_message: DiscoverMessage):
         """
-        TODO: doc
+        Hook called before discover message is sent
         """
 
     async def send_discover_for_operations(self, needed_operations: Dict[str, Constraint]):
@@ -220,12 +233,12 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         self._last_discover_sent_at = datetime.now()
 
     async def send_discover_based_on_needs(self):
-        needed_operations: Dict[str, Constraint] = self.operation_to_discover()
+        needed_operations: Dict[str, Constraint] = self._operation_to_discover()
 
         if len(needed_operations) > 0:
             await self.send_discover_for_operations(needed_operations)
 
-    def is_plugin_operation_needed_and_pluggable(self, plugin_identifier: str, offered_operation: OfferedOperation) -> bool:
+    def _is_plugin_operation_needed_and_pluggable(self, plugin_identifier: str, offered_operation: OfferedOperation) -> bool:
 
         not_satisfied_need = self.current_constraint_for_operation(offered_operation.name)
 
@@ -243,12 +256,12 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return True
 
-    def build_operation_output_topic(self, plugin_identifier: str, operation_name: str) -> str:
+    def _build_operation_output_topic(self, plugin_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{self.identifier}.{plugin_identifier}.output"
 
     async def _get_setup_data(self, plugin_identifier: str, offered_operation: OfferedOperation) -> Optional[bytes]:
         """
-        TODO: doc
+        Hook called to obtain setup data which generally will be sent to plugins. By default, `default_setup_data` is used
         """
 
         return self.needed_operations[offered_operation.name].default_setup_data
@@ -263,12 +276,12 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         output_topic: Optional[str] = None
 
         if offered_operation.output.has_output:
-            output_topic = self.build_operation_output_topic(plugin_identifier, offered_operation.name)
+            output_topic = self._build_operation_output_topic(plugin_identifier, offered_operation.name)
 
 
         setup_data = await self._get_setup_data(plugin_identifier, offered_operation)
 
-        incoming_close_connection_topic: str = self.build_incoming_close_connection_topic(
+        incoming_close_connection_topic: str = self._build_incoming_close_connection_topic(
             plugin_identifier,
             offered_operation.name
         )
@@ -306,9 +319,14 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             )
         )
 
+        pending_request = self._pending_requests_by_remote_identifier(plugin_identifier)[offered_operation.name]
+
+        async with pending_request.lock:
+            self._remove_pending_request(pending_request)
+
     async def _on_new_offer(self, offer_message: OfferMessage):
         """
-        TODO: doc
+        Hook called when a new offer arrives
         """
 
     @event_handler
@@ -330,7 +348,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         tasks = []
         for offered_operation in event.payload.offered_operations:
-            if self.is_plugin_operation_needed_and_pluggable(event.payload.plugin_identifier, offered_operation):
+            if self._is_plugin_operation_needed_and_pluggable(event.payload.plugin_identifier, offered_operation):
                 tasks.append(asyncio.create_task(self._request_operation(
                     event.payload.plugin_identifier,
                     event.payload.reply_topic,
@@ -354,7 +372,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
     async def _on_confirm_connection(self, confirm_connection_message: ConfirmConnectionMessage):
         """
-        TODO: doc
+        Hook called when a confirm connection arrives
         """
 
     async def _confirm_connection_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage]):
@@ -394,8 +412,8 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
             if pending_request.output_topic is not None:        # output is excepted
                 handler: Optional[EventHandler] = None
-                if operation_name in self.operation_sink:
-                    handler = self.operation_sink[operation_name]
+                if operation_name in self.operation_sinks:
+                    handler = self.operation_sinks[operation_name]
 
                 if self.needed_operations[operation_name].has_override_sink:
                     handler = self.needed_operations[operation_name].override_sink
@@ -433,7 +451,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
     async def _on_operation_no_longer_available(self, message: OperationNoLongerAvailableMessage):
         """
-        TODO: doc
+        Hook called when operation no longer available message arrives
         """
 
     async def _operation_no_longer_available_event_handler(self, topic: str, event: Event[OperationNoLongerAvailableMessage]):
@@ -452,7 +470,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
     async def _on_response(self):
         """
-        TODO: str
+        Hook called when response message arrives
         """
 
     @event_handler
@@ -471,7 +489,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         else:
             raise ValueError("Unexpected reply message")
 
-        self.update_compliance()
+        self.update_compliant()
 
 
     def __check_compatibility_connection_payload(self, connection: Connection, message: Optional[AvroMessageMixin]) -> bool:
@@ -492,7 +510,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     async def execute(self, operation_name: str, data: Optional[AvroMessageMixin] = None,
                       *, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None) -> int:
         """
-        Execute the operation by its name.
+        Execute the operation by its name, sending provided data.
 
         You must specify which plugin must be used, otherwise ValueError is raised.
         """
@@ -529,8 +547,12 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return len(topics)
 
-    async def sudo_execute(self, topic: str, payload: Optional[AvroMessageMixin] = None):
-        await self.eventbus_client.publish(topic, payload)
+    async def sudo_execute(self, topic: str, data: Optional[AvroMessageMixin] = None):
+        """
+        Bypass all checks and send data to topic
+        """
+
+        await self.eventbus_client.publish(topic, data)
 
     @override
     async def _on_loop_start(self):
@@ -538,7 +560,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
     @override
     async def _on_loop_iteration(self):
-        self.update_compliance()
+        self.update_compliant()
 
         if self._last_discover_sent_at is None or (self._last_discover_sent_at + timedelta(seconds=self.discovering_interval)) < datetime.now():
             await self.send_discover_based_on_needs()

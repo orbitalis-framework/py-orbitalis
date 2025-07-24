@@ -17,9 +17,6 @@ class Connection:
     Orbiter (you) --- close_connection_to_remote_topic ---> Orbiter (remote)
     Orbiter (you) <--- close_connection_to_local_topic --- Orbiter (remote)
 
-    Orbiter (you) <--- keepalive_to_local_topic --- Orbiter (remote)
-    Orbiter (you) --- keepalive_to_remote_topic ---> Orbiter (remote)
-
     Author: Nicola Ricciardi
     """
 
@@ -50,7 +47,7 @@ class Connection:
 
     def touch(self):
         """
-        TODO: doc "why?"
+        Update last use
         """
         self.last_use = datetime.now()
 

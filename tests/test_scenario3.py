@@ -67,7 +67,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_all_any_execute(self):
-        self.assertTrue(self.smart_home1.is_compliance())   # already compliance, but can plug plugins
+        self.assertTrue(self.smart_home1.is_compliant())   # already compliance, but can plug plugins
 
         await self.lamp_x_plugin.start()
         await self.lamp_y_plugin.start()
@@ -78,7 +78,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.lamp_x_plugin.identifier in self.smart_home1._connections.keys())
         self.assertTrue("turn_on" in self.smart_home1._connections[self.lamp_x_plugin.identifier].keys())
         self.assertTrue("turn_off" in self.smart_home1._connections[self.lamp_x_plugin.identifier].keys())
-        self.assertTrue(self.smart_home1.is_compliance(), "Core 'smart_home1' not compliance")
+        self.assertTrue(self.smart_home1.is_compliant(), "Core 'smart_home1' not compliance")
 
         self.lamp_x_plugin.turn_off()
         self.lamp_y_plugin.turn_off()

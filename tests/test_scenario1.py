@@ -89,14 +89,14 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_simple_handshake(self):
-        self.assertFalse(self.smart_home1.is_compliance())
+        self.assertFalse(self.smart_home1.is_compliant())
 
         await self.lamp_x_plugin.start()
         await self.smart_home1.start()
 
         await asyncio.sleep(2)
 
-        self.assertTrue(self.smart_home1.is_compliance())
+        self.assertTrue(self.smart_home1.is_compliant())
 
         await asyncio.gather(
             self.lamp_x_plugin.stop(),
@@ -106,8 +106,8 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(2)
 
     async def test_double_handshake(self):
-        self.assertFalse(self.smart_home1.is_compliance())
-        self.assertFalse(self.smart_home2.is_compliance())
+        self.assertFalse(self.smart_home1.is_compliant())
+        self.assertFalse(self.smart_home2.is_compliant())
 
         await self.lamp_x_plugin.start()
         await self.smart_home1.start()
@@ -118,7 +118,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(2)
 
-        self.assertFalse(self.smart_home2.is_compliance())
+        self.assertFalse(self.smart_home2.is_compliant())
 
         await asyncio.gather(
             self.lamp_x_plugin.stop(),
@@ -131,14 +131,14 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
     async def test_core_plugin_life(self):
 
         # === HANDSHAKE ===
-        self.assertFalse(self.smart_home1.is_compliance())
+        self.assertFalse(self.smart_home1.is_compliant())
 
         await self.lamp_x_plugin.start()
         await self.smart_home1.start()
 
         await asyncio.sleep(1)
 
-        self.assertTrue(self.smart_home1.is_compliance())
+        self.assertTrue(self.smart_home1.is_compliant())
 
         self.assertTrue(len(self.smart_home1._retrieve_connections(
             remote_identifier=self.lamp_x_plugin.identifier,
@@ -178,7 +178,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             operation_name="turn_on"
         )) == 0)
 
-        self.assertFalse(self.smart_home1.is_compliance())
+        self.assertFalse(self.smart_home1.is_compliant())
 
         await self.lamp_x_plugin.send_graceless_close_connection(self.smart_home1.identifier, "turn_off")
 
@@ -189,7 +189,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             operation_name="turn_off"
         )) == 0)
 
-        self.assertFalse(self.smart_home1.is_compliance())
+        self.assertFalse(self.smart_home1.is_compliant())
 
         # === TEST "turn_on" (should not work) ===
 
@@ -208,7 +208,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(1)
 
-        self.assertTrue(self.smart_home1.is_compliance())
+        self.assertTrue(self.smart_home1.is_compliant())
 
         # === CLOSE GRACEFUL ===
 
@@ -219,7 +219,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(1)
 
-        self.assertFalse(self.smart_home1.is_compliance())
+        self.assertFalse(self.smart_home1.is_compliant())
 
         await asyncio.gather(
             self.lamp_x_plugin.stop(),
@@ -230,7 +230,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
 
     async def test_get_status(self):
-        self.assertFalse(self.smart_home1.is_compliance())
+        self.assertFalse(self.smart_home1.is_compliant())
 
         await self.lamp_x_plugin.start()
         await self.smart_home1.start()

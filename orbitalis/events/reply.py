@@ -11,7 +11,8 @@ class RequestOperationMessage(AvroMessageMixin):
     """
     Core --- request ---> Plugin
 
-    TODO
+    Message used by core to formally request an operation. Every operation has own request.
+    Core provides additional information to finalize the connection
 
     Author: Nicola Ricciardi
     """
@@ -29,7 +30,7 @@ class RejectOperationMessage(AvroMessageMixin):
     """
     Core --- reject ---> Plugin
 
-    TODO
+    Message used by core to formally reject an operation (e.g., not needed anymore). Every operation has own reject.
 
     Author: Nicola Ricciardi
     """

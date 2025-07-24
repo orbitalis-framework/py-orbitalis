@@ -59,7 +59,6 @@ def operation(*, input: Optional[Input] = None, default_policy: Optional[Policy]
     Transform a function of a method in an operation and append it to operations provider
     """
 
-
     if input is None:
         input = Input.no_input()
 

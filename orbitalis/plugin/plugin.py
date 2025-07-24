@@ -167,7 +167,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
             )
 
 
-    def build_operation_input_topic_for_core(self, core_identifier: str, operation_name: str) -> str:
+    def _build_operation_input_topic_for_core(self, core_identifier: str, operation_name: str) -> str:
         return f"{operation_name}.{core_identifier}.{self.identifier}.input.{uuid4()}"
 
     async def _on_send_offer(self, offer_message: OfferMessage):
@@ -266,9 +266,9 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
         topics_to_unsubscribe_if_error: List[str] = []
 
-        operation_input_topic: str = self.build_operation_input_topic_for_core(core_identifier, operation_name)
+        operation_input_topic: str = self._build_operation_input_topic_for_core(core_identifier, operation_name)
 
-        plugin_side_close_operation_connection_topic = self.build_incoming_close_connection_topic(
+        plugin_side_close_operation_connection_topic = self._build_incoming_close_connection_topic(
             core_identifier,
             operation_name
         )
@@ -347,6 +347,8 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
                             operation_name=operation_name
                         )
                     )
+
+                    self._remove_pending_request(pending_request)
 
                 else:
 

@@ -9,9 +9,13 @@ from orbitalis.utils.allowblocklist import AllowBlockListMixin
 @dataclass(kw_only=True)
 class Constraint(AllowBlockListMixin, Inputs, Outputs):
     """
+    Constraint usable for needs
+
     min: minimum number (mandatory included)
     max: maximum number (mandatory included)
     mandatory: identifiers
+
+    Author: Nicola Ricciardi
     """
 
     minimum: int = field(default=0)
@@ -35,6 +39,12 @@ class Constraint(AllowBlockListMixin, Inputs, Outputs):
 
 @dataclass
 class Need:
+    """
+    Contains information about needs
+
+    Author: Nicola Ricciardi
+    """
+
     constraint: Constraint
     override_sink: Optional[EventHandler] = field(default=None, kw_only=True)
     default_setup_data: Optional[bytes] = field(default=None, kw_only=True)

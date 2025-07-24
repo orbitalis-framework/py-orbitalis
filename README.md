@@ -152,6 +152,15 @@ Main methods:
 In particular, every plugin has a set of operations which are exposed to other components (i.e., cores).
 Only connected components should execute operations.
 
+A plugin is a state machine which follows this states:
+
+```mermaid
+stateDiagram-v2
+    CREATED --> RUNNING: start()
+    RUNNING --> STOPPED: stop()
+    STOPPED --> RUNNING: start()
+```
+
 Main hooks:
 
 - `_on_new_discover`: called when a new discover message arrives
@@ -171,7 +180,7 @@ Main methods:
 An operation (`Operation`) represents a feature of a plugin, which is exposed and can be executed remotely. 
 Operations are managed by `OperationsProviderMixin` which also provides builder-like methods.
 
-Every operation has the folliwing attributes:
+Every operation has the following attributes:
 
 - `name`: unique name which identify the operation
 - `handler`: [Busline](https://github.com/orbitalis-framework/py-busline) handler, which will be used to handle inbound events
@@ -202,6 +211,8 @@ class LowercaseTextProcessorPlugin(Plugin):
 
 > [!NOTE]
 > Method name is not related to operation's name.
+
+`@operation` automatically add to `operations` attributes the generated `Operation` object, related to (operation) `name` key.
 
 ##### Policy
 
@@ -261,34 +272,441 @@ if the string version of both is equal.
 For this reason, you must avoid time-based default value in your classes, because Avro set as default a time-variant value. 
 Therefore, in this way, two same-class schema are **different**, even if they are related to the same class.
 
+#### Plugins inheritance example
+
+```python
+@dataclass
+class StatusMessage(AvroMessageMixin):
+    plugin_identifier: str
+    status: str
+    created_at: datetime = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now()
+
+
+class LampStatus(StrEnum):
+    ON = "on"
+    OFF = "off"
+
+
+@dataclass
+class LampPlugin(Plugin, ABC):
+    kwh: float
+    status: LampStatus = field(default=LampStatus.OFF)
+    on_at: Optional[datetime] = field(default=None)
+    total_kwh: float = field(default=0.0)
+
+    @property
+    def is_on(self) -> bool:
+        return self.status == LampStatus.ON
+
+    @property
+    def is_off(self) -> bool:
+        return self.status == LampStatus.OFF
+
+    def turn_on(self):
+        self.status = LampStatus.ON
+
+        if self.on_at is None:
+            self.on_at = datetime.now()
+
+    def turn_off(self):
+        self.status = LampStatus.OFF
+
+        if self.on_at is not None:
+            self.total_kwh += self.kwh * (datetime.now() - self.on_at).total_seconds() / 3600
+
+            self.on_at = None
+
+    @operation(
+        name="get_status",
+        input=Input.empty(),
+        output=Output.from_message(StatusMessage)
+    )
+    async def get_status_event_handler(self, topic: str, event: Event):
+        connections = self._retrieve_connections(input_topic=topic, operation_name="get_status")
+
+        assert len(connections) == 1
+
+        connection = connections[0]
+
+        assert connection.output_topic is not None
+        assert connection.output.has_output
+
+        await self.eventbus_client.publish(
+            connection.output_topic,
+            StatusMessage(self.identifier, str(self.status))
+        )
+
+        connection.touch()
+
+
+    @abstractmethod
+    async def turn_on_event_handler(self, topic: str, event: Event):
+        raise NotImplemented()
+
+    @abstractmethod
+    async def turn_off_event_handler(self, topic: str, event: Event):
+        raise NotImplemented()
+```
+
+```python
+@dataclass
+class LampXPlugin(LampPlugin):
+
+    @operation(
+        name="turn_on",
+        input=Input.empty()
+    )
+    async def turn_on_event_handler(self, topic: str, event: Event):
+        self.turn_on()
+
+    @operation(
+        name="turn_off",
+        input=Input.empty()
+    )
+    async def turn_off_event_handler(self, topic: str, event: Event):
+        self.turn_off()
+```
+
+```python
+LampXPlugin(
+    identifier="lamp_x_plugin",
+    eventbus_client=...,
+    raise_exceptions=True,
+    with_loop=False,
+    kwh=24      # LampPlugin-specific attribute
+).with_custom_policy(
+    operation_name="turn_on",
+    policy=Policy(allowlist=["smart_home"])
+)
+```
+
+```python
+@dataclass(frozen=True)
+class TurnOnLampYMessage(AvroMessageMixin):
+    power: float = field(default=1)
+
+    def __post_init__(self):
+        assert 0 < self.power <= 1
+
+@dataclass(frozen=True)
+class TurnOffLampYMessage(AvroMessageMixin):
+    reset_consumption: bool = field(default=False)
+
+
+
+@dataclass(kw_only=True)
+class LampYPlugin(LampPlugin):
+    power: float = field(default=1)
+
+    @override
+    def turn_off(self):
+        self.status = LampStatus.OFF
+
+        if self.on_at is not None:
+            self.total_kwh += self.power * self.kwh * (datetime.now() - self.on_at).total_seconds() / 3600
+            self.on_at = None
+
+    @operation(
+        name="turn_on",
+        input=Input.from_schema(TurnOnLampYMessage.avro_schema())
+    )
+    async def turn_on_event_handler(self, topic: str, event: Event[TurnOnLampYMessage]):
+        self.turn_on()
+        self.power = event.payload.power
+
+    @operation(
+        name="turn_off",
+        input=Input.from_schema(TurnOffLampYMessage.avro_schema())
+    )
+    async def turn_off_event_handler(self, topic: str, event: Event[TurnOffLampYMessage]):
+        self.turn_off()
+
+        if event.payload.reset_consumption:
+            self.total_kwh = 0
+```
+
+```python
+LampYPlugin(
+    identifier="lamp_y_plugin",
+    eventbus_client=...,
+    raise_exceptions=True,
+    with_loop=False,
+
+    kwh=42
+)
+```
+
+
 ### Core
+
+`Core` is the component which connects itself to [plugins](#plugin), in order to be able to execute their operations.
+
+We must notice that Orbitalis' cores are able to manage operations having different inputs/outputs (but same name), thanks to (Avro) schemas.
+
+We can use a core to execute operations and collect outputs (if they are present).
+
+```mermaid
+sequenceDiagram
+    Core->>Plugin: Execute Operation (with Input)
+    Plugin-->>Core: Output to Sink
+```
+
+A core can also receive messages without an explicit `execute` call.
+
+```mermaid
+sequenceDiagram
+    Plugin-->>Core: Message to Sink
+    Plugin-->>Core: Message to Sink
+    Plugin-->>Core: Message to Sink
+```
+
+We can specify needed operations which make a core compliant with respect to our needs. In fact, `Core` follows these states changes:
+
+```mermaid
+stateDiagram-v2
+    CREATED --> COMPLIANT: start()
+    CREATED --> NOT_COMPLIANT: start()
+    COMPLIANT --> NOT_COMPLIANT
+    NOT_COMPLIANT --> COMPLIANT
+    COMPLIANT --> STOPPED: stop()
+    NOT_COMPLIANT --> STOPPED: stop()
+```
+
+`COMPLIANT` when all needs are satisfied, otherwise `NOT_COMPLIANT`.
+
+Main public attributes:
+
+- `discovering_interval`: interval between two discover messages (only when loop is enabled)
+- `needed_operations`: specifies which operations are needed to be compliant with needs, their constraints and optionally the default setup data
+- `operation_sinks` (see [sinks](#sinks))
+
+Main hooks:
+
+- `_on_compliant`: called when core becomes compliant
+- `_on_not_compliant`: called when core becomes not compliant
+- `_on_send_discover`: called before discover message is sent
+- `_get_setup_data`: called to obtain setup data which generally will be sent to plugins. By default, `default_setup_data` is used
+- `_on_new_offer`: called when a new offer arrives
+- `_on_confirm_connection`: called when a confirm connection arrives
+- `_on_operation_no_longer_available`: called when operation no longer available message arrives
+- `_on_response`: called when response message arrives
+
+Main methods:
+
+- `current_constraint_for_operation`: returns current constraint for operation based on current connections
+- `is_compliant_for_operation`: evaluate at run-time if core is compliant for given operation based on its configuration. It may be a time-consuming operation
+- `is_compliance`: evaluate at run-time if core is global compliant based on its configuration. It may be a very time-consuming operation
+- `update_compliant`: use `is_compliant` to update core's state
+- `_operation_to_discover`: returns a dictionary `operation_name` => `not_satisfied_need`, based on current connections. This operations should be discover
+- `send_discover_for_operations`
+- `send_discover_based_on_needs`
+- `execute`: execute the operation by its name, sending provided data. You must specify which plugin must be used, otherwise `ValueError` is raised.
+- `sudo_execute`: bypass all checks and send data to topic
 
 #### Needs
 
+`needed_operations` attribute is a dictionary where keys are operation names and values are `Need` objects.
+
+We can specify:
+
+- `constraint`: set of rules to manage connection requests
+- `override_sink`: to specify a different sink with respect to default provided by core 
+- `default_setup_data`: bytes which are send by default to plugin on connection establishment
+
+`Constraint` class allows you to be very granular in rule specifications:
+
+- `mandatory`: list of needed plugin identifiers
+- `minimum` number of additional plugins (plugins in mandatory list are excluded)
+- `maximum` number of additional plugins (plugins in mandatory list are excluded)
+- `allowlist`/`blocklist`
+- `inputs`: represents the list of supported `Input` 
+- `outputs`: represents the list of supported `Output` 
+
+In other words, you can specify a list of possible and different inputs and outputs which are supported by your core.
+
+You must observe that inputs and outputs are not related, therefore all possible combinations are evaluated.
+
+For example, if your core needs these operations:
+
+- `operation1`: `"plugin1"` is mandatory, at least 2 additional plugins, maximum 5 additional plugins. Borrowable `operation1` can be fed with "no input", `Operation1InputV1Message` or `Operation1InputV2Message`, instead they produce nothing as output
+- `operation2`: `"plugin1"` and `"plugin2"` are mandatory, there is no a minimum or a maximum number of additional plugins. Borrowable `operation2` must be feedable with empty events (no message) and they must produce `Opeartion2OutputMessage` messages
+- `operation3`: no mandatory plugins required, no additional plugins required (any number of connections). `operation3` has no input (therefore core doesn't interact with plugin, but is plugin to send data arbitrary). `Operation3Output` is expected to be sent to core
+
+```python
+YourCore(
+    ...,
+    needed_operations={
+        "operation1": Need(Constraint(
+            minimum=2,
+            maximum=5,
+            mandatory=["plugin1"],
+            inputs=[Input.no_input(), Input.from_message(Operation1InputV1Message), Input.from_message(Operation1InputV2Message)],
+            outputs=[Output.no_output()]
+        )),
+        "operation2": Need(Constraint(
+            minimum=0,
+            mandatory=["plugin1", "plugin2"],
+            inputs=[Input.empty()],
+            outputs=[Output.from_message(Opeartion2OutputMessage)]
+        )),
+        "operation3": Need(Constraint(
+            inputs=[Input.no_input()],
+            outputs=[Output.from_message(Operation3Output)]
+        )),
+    }
+)
+```
+
 #### Sinks
+
+In order to be able to handle operation outputs, cores must be equipped with `Sink`, which are basically Busline's `EventHandler` _associated to an operation_.
+
+Operation's sinks are stored in `operation_sinks`. You can manually add them directly or using `with_operation_sink` method.
+Otherwise, we advise you to use `@sink` decorator, which you can use to decorator your methods and functions providing operation name. For example:
+
+```python
+@dataclass
+class MyCore(Core):
+
+    @sink("my_operation_name")
+    async def lowercase_sink(self, topic: str, event: Event[MyMessage]):
+        ...
+```
 
 ### Connections
 
+A connection is a link between a core and a plugin **related to a single operation**, therefore more connections can be present between same core and plugin.
+
+`Connection` class store all information about a connection:
+
+- `operation_name`
+- `remote_identifier`
+- `incoming_close_connection_topic`: topic on which close connection request arrives from remote orbiter
+- `close_connection_to_remote_topic`: topic which orbiter must use to close connection with remote orbiter
+- `lock`: `asyncio.Lock`, used to synchronize connection uses
+- `input`: acceptable `Input`
+- `output`: sendable `Output`
+- `input_topic`
+- `output_topic`
+- `created_at`: connection creation datetime
+- `last_use`: datetime of last use
+
+`last_use` must be updated manually, if you want to update it, using `touch` method.
+
+For example, when a new message arrives:
+
+```python
+@dataclass
+class MyPlugin(Plugin):
+    @operation(
+        name="my_operation",
+        input=...,
+        output=...
+    )
+    async def lowercase_event_handler(self, topic: str, event: Event[...]):
+        connections = self._retrieve_connections(input_topic=topic, operation_name="my_operation")
+        
+        for connection in connections:
+            async with connection.lock:
+                connection.touch()
+```
+
+Orbiter connections are stored in `_connections` attribute.
+
+You can manage them using following methods:
+
+- `_add_connection`
+- `_remove_connection` (_does not lock automatically the connection_)
+- `_connections_by_remote_identifier`: retrieves connection based on remote identifier
+- `_retrieve_connections`: to query connections
+- `close_unused_connections` based on `close_connection_if_unused_after` and `last_use`
+
 #### Pending requests
 
+`PendingRequest` contains information about future connection. It is built during [handshake](#handshake) process, so generally you should not use this class.
+Anyway, it has `into_connection` method to build a `Connection` and, similarly to connections, has a `lock` attribute to synchronize elaborations.
+`created_at` is the field used to check if a pending request must be discarded.
 
+You can manage pending requests thanks to:
+
+- `_pending_requests_by_remote_identifier`: retrieves pending requests based on remote identifier
+- `_add_pending_request` 
+- `_remove_pending_request` (_does not lock automatically the pending request_)
+- `_is_pending` to know if there is a pending request related to a remote identifier and an operation name
+- `_promote_pending_request_to_connection`: (_does not lock automatically the pending request_) transforms a pending request into a connection
+- `discard_expired_pending_requests` based on `pending_requests_expire_after` and `created_at`
 
 ### Handshake
 
+To allow cores and plugins to create connections a handshake mechanism was implemented based on how DHCP works.
+
+![DHCP](doc/assets/images/dhcp.jpg)
+
+There are 4 steps:
+
+1. **Discover**: message used by cores to notify plugins of their presence and to ask operations connections, core provides a full set of pluggable operations with related information
+2. **Offer**: Message used by plugins to response to discover message, providing their base information and a list of offered operations. List of offered operations can be smaller than fullset provided by discover
+3. **Reply**
+   - **Request**: message used by core to formally request an operation. Every operation has own request. Core provides additional information to finalize the connection
+   - **Reject**: message used by core to formally reject an operation (e.g., not needed anymore). Every operation has own reject
+4. **Response**
+   - **Confirm**: message used by plugins to confirm the connection creation
+   - **OperationNoLongerAvailable**: message used by plugins to notify core that operation is no longer available
+
+```mermaid
+sequenceDiagram
+    Core->>Plugin: Discover
+    Plugin->>Plugin: New pending requests
+    Plugin->>Core: Offer
+    par for each offered operation
+        alt is still needed
+            Core->>Core: New pending request
+            Core->>Plugin: Request
+        else not needed anymore
+            Core->>Plugin: Reject
+            Plugin->>Plugin: Remove pending request
+        end
+    end
+    par for each requested operation
+        alt is still available
+            Plugin->>Plugin: Promote pending request to connection
+            Plugin->>Core: Confirm
+            Core->>Core: Promote pending request to connection
+        else operation no longer available
+            Plugin->>Plugin: Remove pending request
+            Plugin->>Core: OperationNoLongerAvailable
+            Core->>Core: Remove pending request
+        end
+    end
+```
+
+Orbiters which are related to the same context must use the same **discover topic** (by default `$handshake.discover`).
+It can be set using `discover_topic` attribute.
+
+Other topics are automatically generated, but generation can be modified overriding `_build_*` methods.
+
+We must notice that discover and offer messages are also used to share information about presence of cores/plugins.
+Theoretically, this means that a plugin may send an offer without an explicit discover, 
+for example if a connection is closed and a slot for an operation becomes available. Anyway, this is not performed in current implementation.
+
 ### Close connections
+
+_unsubscribe_on_close_bucket
 
 ### Keepalive
 
+dead_remote_identifiers
+
 ### Loop
 
+_stop_loop_controller
+
+_pause_loop_controller
 
 
 
-
-- Discover fisso e condiviso
-- Offer sempre uguale così che un plugin possa offrire senza discover
-- Touch connection per logiche di scollegamento
-- Reply/Response per singole operation per dare tempo di decidere
-- Lock su pending request e connection
-- Usare lock su promoto pending request, remove pending request, remove connection
 

@@ -32,7 +32,8 @@ class DiscoverMessage(AvroMessageMixin):
     """
     Core --- discover ---> Plugin
 
-    TODO
+    Message used by cores to notify plugins of their presence and to ask operations connections,
+    core provides a full set of pluggable operations with related information
 
     Author: Nicola Ricciardi
     """

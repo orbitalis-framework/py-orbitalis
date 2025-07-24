@@ -9,8 +9,9 @@ from busline.event.message.avro_message import AvroMessageMixin
 @dataclass(frozen=True, kw_only=True)
 class ConfirmConnectionMessage(AvroMessageMixin):
     """
+    Plugin --- confirm connection ---> Core
 
-    TODO
+    Message used by plugins to confirm the connection creation
 
     Author: Nicola Ricciardi
     """
@@ -25,7 +26,9 @@ class ConfirmConnectionMessage(AvroMessageMixin):
 @dataclass(frozen=True, kw_only=True)
 class OperationNoLongerAvailableMessage(AvroMessageMixin):
     """
-    TODO
+    Plugin --- operation no longer available ---> Core
+
+    Message used by plugins to notify core that operation is no longer available
 
     Author: Nicola Ricciardi
     """

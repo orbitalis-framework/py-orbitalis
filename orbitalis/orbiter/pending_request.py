@@ -22,8 +22,7 @@ class PendingRequest:
     close_connection_to_remote_topic: Optional[str] = field(default=None, kw_only=True)
     output_topic: Optional[str] = field(default=None, kw_only=True)
 
-    created_at: datetime = field(default_factory=lambda: datetime.now(), kw_only=True)
-    updated_at: datetime = field(default_factory=lambda: datetime.now(), init=False)
+    created_at: datetime = field(default_factory=lambda: datetime.now(), init=False)
 
     def into_connection(self) -> Connection:
 
@@ -52,6 +51,4 @@ class PendingRequest:
             output=self.output,
             incoming_close_connection_topic=self.incoming_close_connection_topic,
             close_connection_to_remote_topic=self.close_connection_to_remote_topic,
-            # keepalive_to_local_topic=self.keepalive_to_local_topic,
-            # keepalive_to_remote_topic=self.keepalive_to_remote_topic,
         )
