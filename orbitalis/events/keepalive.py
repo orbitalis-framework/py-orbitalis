@@ -9,7 +9,7 @@ class KeepaliveRequestMessage(AvroMessageMixin):
     """
     Orbiter A --- keepalive_request ---> Orbiter B
 
-    TODO
+    Message sent to request a keepalive
 
     Author: Nicola Ricciardi
     """
@@ -23,7 +23,7 @@ class KeepaliveMessage(AvroMessageMixin):
     """
     Orbiter A <--- keepalive --- Orbiter B
 
-    TODO
+    Message sent to notify a keepalive
 
     Author: Nicola Ricciardi
     """

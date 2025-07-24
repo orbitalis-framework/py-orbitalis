@@ -21,6 +21,7 @@ DEFAULT_LOOP_INTERVAL = 1
 DEFAULT_PENDING_REQUESTS_EXPIRE_AFTER = 60.0
 DEFAULT_SEND_KEEPALIVE_BEFORE_TIMELIMIT = 10.0
 DEFAULT_CONSIDERED_DEAD_AFTER = 120.0
+DEFAULT_GRACEFUL_CLOSE_TIMEOUT = 300.0
 
 
 @dataclass(kw_only=True)
@@ -46,6 +47,7 @@ class Orbiter(ABC):
     pending_requests_expire_after: Optional[float] = field(default=DEFAULT_PENDING_REQUESTS_EXPIRE_AFTER)
     consider_others_dead_after: Optional[float] = field(default=DEFAULT_CONSIDERED_DEAD_AFTER)
     send_keepalive_before_timelimit: float = field(default=DEFAULT_SEND_KEEPALIVE_BEFORE_TIMELIMIT)
+    graceful_close_timeout: Optional[float] = field(default=DEFAULT_GRACEFUL_CLOSE_TIMEOUT)
 
     with_loop: bool = field(default=True)
 
@@ -58,7 +60,7 @@ class Orbiter(ABC):
     _connections: Dict[str, Dict[str, Connection]] = field(default_factory=lambda: defaultdict(dict), init=False)    # remote_identifier => { operation_name => Connection }
     _pending_requests: Dict[str, Dict[str, PendingRequest]] = field(default_factory=lambda: defaultdict(dict), init=False)    # remote_identifier => { operation_name => PendingRequest }
 
-    _unsubscribe_on_close_bucket: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set), init=False)
+    _unsubscribe_on_full_close_bucket: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set), init=False)
 
     _stop_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
     _pause_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
@@ -366,6 +368,47 @@ class Orbiter(ABC):
 
         return 0
 
+    async def force_close_connection_for_out_to_timeout_pending_graceful_close_connection(self) -> int:
+        try:
+            if self.graceful_close_timeout is None:
+                return 0
+
+            if len(self._connections) == 0:
+                return 0
+
+            to_close: List[Connection] = []
+
+            closed = 0
+            for remote_identifier, of_operation in self._connections.items():
+                for operation_name, connection in of_operation.items():
+                    if connection.soft_closed_at is None:
+                        continue
+
+                    expiration= connection.soft_closed_at + timedelta(seconds=self.graceful_close_timeout)
+                    if expiration < datetime.now():
+                        to_close.append(connection)
+
+            tasks = []
+            for connection in to_close:
+                tasks.append(
+                    asyncio.create_task(
+                        self.send_graceless_close_connection(connection.remote_identifier, connection.operation_name)
+                    )
+                )
+                closed += 1
+
+            if len(tasks) > 0:
+                await asyncio.gather(*tasks)
+
+            return closed
+
+        except Exception as e:
+            logging.error(f"{self}: {repr(e)}")
+
+            if self.raise_exceptions:
+                raise e
+
+        return 0
 
     def update_acquaintances(self, remote_identifier: str,
         *, keepalive_topic: str, keepalive_request_topic: str, consider_me_dead_after: float):
@@ -566,8 +609,8 @@ class Orbiter(ABC):
         close_incoming_close_connection_task = self.eventbus_client.unsubscribe(connection.incoming_close_connection_topic)
 
         if len(self._connections[remote_identifier].values()) == 0:
-            await self.eventbus_client.multi_unsubscribe(list(self._unsubscribe_on_close_bucket[remote_identifier]), parallelize=True)
-            self._unsubscribe_on_close_bucket.pop(remote_identifier, None)
+            await self.eventbus_client.multi_unsubscribe(list(self._unsubscribe_on_full_close_bucket[remote_identifier]), parallelize=True)
+            self._unsubscribe_on_full_close_bucket.pop(remote_identifier, None)
 
         await close_incoming_close_connection_task
 
@@ -595,19 +638,22 @@ class Orbiter(ABC):
 
             connection = connections[0]
 
-            ack_topic = self._build_ack_close_topic(remote_identifier, operation_name)
+            async with connection.lock:
+                connection.soft_close()
 
-            await self.eventbus_client.subscribe(ack_topic, self._close_connection_ack_event_handler)
+                ack_topic = self._build_ack_close_topic(remote_identifier, operation_name)
 
-            await self.eventbus_client.publish(
-                connection.close_connection_to_remote_topic,
-                GracefulCloseConnectionMessage(
-                    from_identifier=self.identifier,
-                    operation_name=operation_name,
-                    ack_topic=ack_topic,
-                    data=data
+                await self.eventbus_client.subscribe(ack_topic, self._close_connection_ack_event_handler)
+
+                await self.eventbus_client.publish(
+                    connection.close_connection_to_remote_topic,
+                    GracefulCloseConnectionMessage(
+                        from_identifier=self.identifier,
+                        operation_name=operation_name,
+                        ack_topic=ack_topic,
+                        data=data
+                    )
                 )
-            )
 
         except Exception as e:
             logging.error(f"{self}: {repr(e)}")
@@ -720,7 +766,8 @@ class Orbiter(ABC):
                     self._on_loop_iteration(),
                     self.close_unused_connections(),
                     self.discard_expired_pending_requests(),
-                    self.send_keepalive_based_on_connections_and_threshold()
+                    self.force_close_connection_for_out_to_timeout_pending_graceful_close_connection(),
+                    self.send_keepalive_based_on_connections_and_threshold(),
                 )
 
                 await self._on_loop_iteration_end()

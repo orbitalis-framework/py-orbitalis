@@ -106,7 +106,8 @@ Main public attributes:
 - `close_connection_if_unused_after` if not None, it specifies how many seconds can pass without use a connection, then it is closed
 - `pending_requests_expire_after` if not None, it specifies how many seconds can pass before that a pending request is discarded 
 - `consider_others_dead_after` states how many seconds can pass before that a remote orbiter is considered dead if no keepalive arrives
-- `send_keepalive_before_timelimit` states how many seconds before a keepalive message is sent that other remote orbiter considers current orbiter dead 
+- `send_keepalive_before_timelimit` states how many seconds before a keepalive message is sent that other remote orbiter considers current orbiter dead
+- `graceful_close_timeout`: states how many seconds a graceful close connection can be pending
 
 Main hooks:
 
@@ -133,6 +134,7 @@ Main methods:
 - `_retrieve_connections`: retrieve all connections which satisfy query
 - `discard_expired_pending_requests`: remove expired pending requests and return total amount of discarded requests 
 - `close_unused_connections`: send a graceful close request to all remote orbiter if connection was unused based on `close_connection_if_unused_after`
+- `force_close_connection_for_out_to_timeout_pending_graceful_close_connection`: send graceless close connection based on `graceful_timeout` if a connection is in close pending due to graceful close connection 
 - `update_acquaintances`: update knowledge about keepalive request topics, keepalive topics and dead time
 - `have_seen`: update last seen for remote orbiter
 - `send_keepalive`
@@ -577,6 +579,46 @@ class MyCore(Core):
         ...
 ```
 
+#### Example
+
+You should consider plugins of [this example](#plugins-inheritance-example).
+
+```python
+@dataclass
+class SmartHomeCore(Core):
+
+    lamp_status: Dict[str, str] = field(default_factory=dict)
+
+    @sink(
+        operation_name="get_status"
+    )
+    async def get_status_sink(self, topic: str, event: Event[StatusMessage]):
+        self.lamp_status[event.payload.plugin_identifier] = event.payload.status
+```
+
+```python
+smart_home = SmartHomeCore(
+   identifier="smart_home",
+   eventbus_client=...,
+   needed_operations={
+       "turn_on": Need(
+           Constraint(
+               minimum=1,
+               inputs=[Input.empty()],
+               outputs=[Output.no_output()]
+           )
+       ),
+       "turn_off": Need(
+           Constraint(
+               minimum=1,
+               inputs=[Input.empty()],
+               outputs=[Output.no_output()]
+           )
+       ),
+   }
+)
+```
+
 ### Connections
 
 A connection is a link between a core and a plugin **related to a single operation**, therefore more connections can be present between same core and plugin.
@@ -592,6 +634,7 @@ A connection is a link between a core and a plugin **related to a single operati
 - `output`: sendable `Output`
 - `input_topic`
 - `output_topic`
+- `soft_closed_at`: used during graceful close connection
 - `created_at`: connection creation datetime
 - `last_use`: datetime of last use
 
@@ -695,18 +738,92 @@ for example if a connection is closed and a slot for an operation becomes availa
 
 ### Close connections
 
-_unsubscribe_on_close_bucket
+An orbiter can close a connection in every moment. There are two ways to close a connection:
+
+- **Graceless**: orbiter sends a `GracelessCloneConnectionMessage` to remote one and close connection immediately
+
+```mermaid
+sequenceDiagram
+    Core->>Core: Close connection
+    Core->>Plugin: Graceless close connection
+    Plugin->>Plugin: Close connection
+```
+
+- **Graceful**: orbiter sends a `GracefulCloseConnectionMessage` to remote one. Remote orbiter is able to perform some operations before connection is actually closed. Remote orbiter must send a `CloseConnectionAckMessage`, after that connection is closed. If `graceful_close_timeout` is not `None` is used to send graceless close connection if ACK is not sent. 
+
+```mermaid
+sequenceDiagram
+    Core->>Plugin: Graceful close connection
+    activate Core
+    Plugin->>Plugin: Some operations
+    Plugin->>Plugin: Close connection
+    Plugin->>Core: Close connection ACK
+    deactivate Core
+    Core->>Core: Close connection
+```
+
+When all connections with a remote orbiter are closed, orbiter unsubscribes itself from topics in `_unsubscribe_on_full_close_bucket` field.
+
+Hooks:
+
+- `_on_graceless_close_connection`: called before graceless close connection request is sent
+- `_on_close_connection`: called when a connection is closed
+- `_on_graceful_close_connection`: called before sending graceful close connection request
+
 
 ### Keepalive
 
-dead_remote_identifiers
+Keepalive mechanism allows orbiters to preserve connections during the time. Every orbiter must send a keepalive to all own linked orbiters.
+
+An orbiter can _request_ a keepalive using `send_keepalive_request` method, which sends a `KeepaliveRequestMessage`.
+
+```mermaid
+sequenceDiagram
+    Orbiter 1->>Orbiter 2: Keepalive request
+    Orbiter 2->>Orbiter 1: Keepalive
+```
+
+Keepalive are sent using `KeepaliveMessage` messages. You can manually send a keepalive using `send_keepalive` method.
+
+In addiction, `send_all_keepalive_based_on_connections` and `send_keepalive_based_on_connections_and_threshold` are provided.
+`send_all_keepalive_based_on_connections` sends a keepalive to all remote orbiters which have an opened connection, 
+instead `send_keepalive_based_on_connections_and_threshold` sends a keepalive to all remote orbiters which have an opened connection 
+only if it is in range `send_keepalive_before_timelimit` seconds before remote orbiter considers it _dead_.
+
+You can know which are dead remote orbiters thanks to `dead_remote_identifiers` property.
+
+Main related fields:
+
+- `_others_considers_me_dead_after`
+- `_remote_keepalive_request_topics`
+- `_remote_keepalive_topics`
+- `_last_seen`
+- `_last_keepalive_sent`
+
+Hooks:
+
+- `_on_keepalive_request`: called on keepalive request, before response
+- `_on_keepalive`: called on inbound keepalive
 
 ### Loop
 
-_stop_loop_controller
+Every orbiter has an internal loop which performs periodically operations. Loop can be avoided setting `with_loop=False`.
 
-_pause_loop_controller
+Loop is stopped when `stop()` method is called, but you can stop it prematurely using `_stop_loop_controller.set()`. 
+If you want to pause loop, you must `set` and `clear`: `_pause_loop_controller`.
 
+Additionally to hooks, the following operations (already discussed) are executed in parallel:
 
+- `_on_loop_iteration`
+- `close_unused_connections`
+- `discard_expired_pending_requests`
+- `force_close_connection_for_out_to_timeout_pending_graceful_close_connection`
+- `send_keepalive_based_on_connections_and_threshold`
 
+Hooks:
+
+- `_on_loop_start`: called on loop start
+- `_on_new_loop_iteration`: called before every loop iteration
+- `_on_loop_iteration_end`: called at the end of every loop iteration
+- `_on_loop_iteration`: called during every loop iteration
 

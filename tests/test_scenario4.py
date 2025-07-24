@@ -25,6 +25,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             loop_interval=0,
             consider_others_dead_after=3,
             send_keepalive_before_timelimit=2,
+            graceful_close_timeout=1,
 
             kwh=1      # LampPlugin-specific attribute
         )
@@ -111,6 +112,31 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(4)
 
         self.assertEqual(len(self.smart_home.dead_remote_identifiers), 1)
+
+    async def test_graceful_close_timeout(self):
+        await self.lamp_x_plugin.start()
+        await self.smart_home.start()
+
+        async def dummy(*args, **kwargs):
+            pass
+
+        self.smart_home._graceful_close_connection = dummy
+
+        await asyncio.sleep(2)  # handshake time
+
+        self.assertIn(self.smart_home.identifier, self.lamp_x_plugin._connections)
+        self.assertIn("turn_on", self.lamp_x_plugin._connections[self.smart_home.identifier])
+
+        await self.lamp_x_plugin.send_graceful_close_connection(
+            self.smart_home.identifier,
+            "turn_on"
+        )
+
+        await asyncio.sleep(2)
+
+        self.assertIn(self.smart_home.identifier, self.lamp_x_plugin._connections)
+        self.assertNotIn("turn_on", self.lamp_x_plugin._connections[self.smart_home.identifier])
+
 
 
 

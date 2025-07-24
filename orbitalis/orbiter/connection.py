@@ -34,8 +34,13 @@ class Connection:
     input_topic: Optional[str] = field(default=None)
     output_topic: Optional[str] = field(default=None)
 
+    soft_closed_at: Optional[datetime] = field(default=None, init=False)
     created_at: datetime = field(default_factory=lambda: datetime.now())
     last_use: Optional[datetime] = field(default=None)
+
+    @property
+    def is_soft_closed(self) -> bool:
+        return self.soft_closed_at is not None
 
     @property
     def has_input(self) -> bool:
@@ -50,6 +55,10 @@ class Connection:
         Update last use
         """
         self.last_use = datetime.now()
+
+    def soft_close(self):
+        if self.soft_closed_at is None:
+            self.soft_closed_at = datetime.now()
 
     def __str__(self):
         return f"('{self.remote_identifier}', '{self.operation_name}')"

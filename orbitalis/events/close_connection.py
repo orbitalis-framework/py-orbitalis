@@ -12,7 +12,7 @@ class GracelessCloneConnectionMessage(AvroMessageMixin):
     """
     Orbiter A --- close ---> Orbiter B
 
-    TODO
+    Message sent to close connection
 
     Author: Nicola Ricciardi
     """
@@ -27,7 +27,7 @@ class GracefulCloseConnectionMessage(AvroMessageMixin):
     """
     Orbiter A --- close ---> Orbiter B
 
-    TODO
+    Message sent to notify the desire to close the connection
 
     Author: Nicola Ricciardi
     """
@@ -43,7 +43,7 @@ class CloseConnectionAckMessage(AvroMessageMixin):
     """
     Orbiter A <--- close ack --- Orbiter B
 
-    TODO
+    Message sent to confirm close connection
 
     Author: Nicola Ricciardi
     """
