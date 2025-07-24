@@ -192,7 +192,7 @@ Every operation has the following attributes:
 - `input`: specifies which is the acceptable input
 - `output`: specifies which is the sendable output
 
-Even if output can be specified, if a Core doesn't need it, it is not sent.
+Even if output can be specified, if a `Core` doesn't need it, it is not sent.
 
 You can add manually operations to a plugin thanks to `operations` attribute, otherwise you can use `@operation` **decorator**. 
 
@@ -275,6 +275,10 @@ if the string version of both is equal.
 
 For this reason, you must avoid time-based default value in your classes, because Avro set as default a time-variant value. 
 Therefore, in this way, two same-class schema are **different**, even if they are related to the same class.
+
+```python
+created_at: datetime = field(default_factory=lambda: datetime.now())    # AVOID !!!
+```
 
 #### Plugins inheritance example
 
@@ -463,9 +467,9 @@ A core can also receive messages without an explicit `execute` call.
 
 ```mermaid
 sequenceDiagram
-    Plugin-->>Core: Message to Sink
-    Plugin-->>Core: Message to Sink
-    Plugin-->>Core: Message to Sink
+    Plugin->>Core: Message to Sink
+    Plugin->>Core: Message to Sink
+    Plugin->>Core: Message to Sink
 ```
 
 We can specify needed operations which make a core compliant with respect to our needs. In fact, `Core` follows these states changes:
