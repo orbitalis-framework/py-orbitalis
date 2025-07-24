@@ -152,15 +152,17 @@ Main methods:
 `Plugin` is an `Orbiter` and it is basically an _operations provider_. In a certain sense, plugins lent possibility to execute their operations.
 
 In particular, every plugin has a set of operations which are exposed to other components (i.e., cores).
-Only connected components should execute operations.
+Only connected components should execute operations (but this is not strictly ensured, you should check if there is a valid connection during operation elaboration).
 
 A plugin is a state machine which follows this states:
 
 ```mermaid
 stateDiagram-v2
+    [*] --> CREATED
     CREATED --> RUNNING: start()
     RUNNING --> STOPPED: stop()
     STOPPED --> RUNNING: start()
+    STOPPED --> [*]
 ```
 
 Main hooks:
@@ -445,7 +447,7 @@ LampYPlugin(
 
 ### Core
 
-`Core` is the component which connects itself to [plugins](#plugin), in order to be able to execute their operations.
+`Core` is an `Orbiter` and it is the component which connects itself to [plugins](#plugin), in order to be able to execute their operations.
 
 We must notice that Orbitalis' cores are able to manage operations having different inputs/outputs (but same name), thanks to (Avro) schemas.
 
@@ -470,12 +472,14 @@ We can specify needed operations which make a core compliant with respect to our
 
 ```mermaid
 stateDiagram-v2
+    [*] --> CREATED
     CREATED --> COMPLIANT: start()
     CREATED --> NOT_COMPLIANT: start()
     COMPLIANT --> NOT_COMPLIANT
     NOT_COMPLIANT --> COMPLIANT
     COMPLIANT --> STOPPED: stop()
     NOT_COMPLIANT --> STOPPED: stop()
+    STOPPED --> [*]
 ```
 
 `COMPLIANT` when all needs are satisfied, otherwise `NOT_COMPLIANT`.
