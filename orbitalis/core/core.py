@@ -5,11 +5,11 @@ from datetime import datetime, timedelta
 import logging
 from dataclasses import dataclass, field
 from typing import override, Dict, Set, Optional, List
-
 from busline.client.subscriber.event_handler import event_handler
 from busline.client.subscriber.event_handler.event_handler import EventHandler
 from busline.event.message.avro_message import AvroMessageMixin
 from busline.event.event import Event
+
 from orbitalis.core.sink import SinksProviderMixin
 from orbitalis.core.state import CoreState
 from orbitalis.events.discover import DiscoverMessage, DiscoverQuery
@@ -25,6 +25,11 @@ from orbitalis.state_machine.state_machine import StateMachine
 
 @dataclass(kw_only=True)
 class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
+    """
+
+
+    Author: Nicola Ricciardi
+    """
 
     discovering_interval: float = field(default=2)
     needed_operations: Dict[str, Need] = field(default_factory=dict)    # operation_name => Need

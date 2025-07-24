@@ -18,7 +18,6 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
     """
 
 
-
     async def test_handshake_and_execution(self):
         
         lamp_x_plugin = LampXPlugin(
