@@ -38,9 +38,9 @@ class Constraint(AllowBlockListMixin, Inputs, Outputs):
 
 
 @dataclass
-class Need:
+class OperationRequirement:
     """
-    Contains information about needs
+    Operation requirement for a Core to be compliant
 
     Author: Nicola Ricciardi
     """
@@ -52,5 +52,3 @@ class Need:
     @property
     def has_override_sink(self) -> bool:
         return self.override_sink is not None
-
-

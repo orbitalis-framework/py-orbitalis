@@ -6,7 +6,7 @@ from typing import Optional
 from busline.event.event import Event
 from busline.event.message.string_message import StringMessage
 from orbitalis.core.core import Core
-from orbitalis.core.need import Constraint, Need
+from orbitalis.core.requirement import Constraint, OperationRequirement
 from orbitalis.core.sink import sink
 from orbitalis.orbiter.schemaspec import Input, Output
 from tests.plugin.text_processor.lowercase_text_processor_plugin import LowercaseTextProcessorPlugin
@@ -35,11 +35,11 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             eventbus_client=build_new_local_client(),
             with_loop=False,
             raise_exceptions=True,
-            needed_operations={
-                "lowercase": Need(Constraint(
+            operation_requirements={
+                "lowercase": OperationRequirement(Constraint(
                     inputs=[Input.from_message(StringMessage)],
                     outputs=[Output.from_message(StringMessage)],
-                ))
+                ), override_sink="my-sink", default_setup_data=bytes())
             }
         )
 

@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 
-from orbitalis.core.need import Constraint, Need
+from orbitalis.core.requirement import Constraint, OperationRequirement
 from orbitalis.core.state import CoreState
 from orbitalis.orbiter.schemaspec import Input, Output
 from tests.core.smarthome_core import SmartHomeCore
@@ -41,15 +41,15 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             consider_others_dead_after=3,
             send_keepalive_before_timelimit=2,
             raise_exceptions=True,
-            needed_operations={
-                "turn_on": Need(
+            operation_requirements={
+                "turn_on": OperationRequirement(
                     Constraint(
                         minimum=1,
                         inputs=[Input.empty()],
                         outputs=[Output.no_output()]
                     )
                 ),
-                "turn_off": Need(
+                "turn_off": OperationRequirement(
                     Constraint(
                         minimum=1,
                         inputs=[Input.empty()],

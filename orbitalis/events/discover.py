@@ -5,7 +5,7 @@ from dataclasses_avroschema import AvroModel
 
 from busline.event.registry import add_to_registry
 from busline.event.message.avro_message import AvroMessageMixin
-from orbitalis.core.need import Constraint
+from orbitalis.core.requirement import Constraint
 from orbitalis.orbiter.schemaspec import Outputs, Inputs
 from orbitalis.utils.allowblocklist import AllowBlockListMixin
 

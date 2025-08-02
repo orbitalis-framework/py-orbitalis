@@ -4,7 +4,7 @@ import unittest
 from busline.event.message.avro_message import AvroMessageMixin
 from dataclasses import dataclass
 
-from orbitalis.core.need import Constraint, Need
+from orbitalis.core.requirement import Constraint, OperationRequirement
 from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
@@ -56,14 +56,14 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             identifier="smart_home",
             eventbus_client=build_new_local_client(),
             raise_exceptions=True,
-            needed_operations={
-                "turn_on": Need(Constraint(
+            operation_requirements={
+                "turn_on": OperationRequirement(Constraint(
                     minimum=1,
                     mandatory=["lamp_x_plugin"],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
                 )),
-                "turn_off": Need(Constraint(
+                "turn_off": OperationRequirement(Constraint(
                     minimum=1,
                     mandatory=["lamp_x_plugin"],
                     inputs=[Input.empty()],

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from busline.client.subscriber.event_handler import event_handler
 from busline.event.event import Event
-from orbitalis.core.need import Constraint
+from orbitalis.core.requirement import Constraint
 from orbitalis.events.discover import DiscoverMessage, DiscoverQuery
 from orbitalis.events.offer import OfferMessage, OfferedOperation
 from orbitalis.events.reply import RejectOperationMessage, RequestOperationMessage

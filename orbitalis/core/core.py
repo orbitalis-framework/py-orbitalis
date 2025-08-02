@@ -14,7 +14,7 @@ from orbitalis.core.sink import SinksProviderMixin
 from orbitalis.core.state import CoreState
 from orbitalis.events.discover import DiscoverMessage, DiscoverQuery
 from orbitalis.events.offer import OfferMessage, OfferedOperation
-from orbitalis.core.need import Constraint, Need
+from orbitalis.core.requirement import Constraint, OperationRequirement
 from orbitalis.events.reply import RequestOperationMessage, RejectOperationMessage
 from orbitalis.events.response import ConfirmConnectionMessage, OperationNoLongerAvailableMessage
 from orbitalis.orbiter.connection import Connection
@@ -32,7 +32,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     """
 
     discovering_interval: float = field(default=2)
-    needed_operations: Dict[str, Need] = field(default_factory=dict)    # operation_name => Need
+    operation_requirements: Dict[str, OperationRequirement] = field(default_factory=dict)    # operation_name => OperationRequirement
 
     _last_discover_sent_at: Optional[datetime] = field(default=None)
 
@@ -42,11 +42,11 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         self.state = CoreState.CREATED
 
     @classmethod
-    def _is_plugin_operation_needed_by_need(cls, need: Constraint) -> bool:
-        return need.minimum > 0 \
-            or (need.mandatory is not None and len(need.mandatory) > 0) \
-            or need.maximum is None \
-            or (need.maximum is not None and need.maximum > 0)
+    def _is_plugin_operation_required_by_constraint(cls, constraint: Constraint) -> bool:
+        return constraint.minimum > 0 \
+            or (constraint.mandatory is not None and len(constraint.mandatory) > 0) \
+            or constraint.maximum is None \
+            or (constraint.maximum is not None and constraint.maximum > 0)
 
     @property
     def offer_topic(self) -> str:
@@ -73,7 +73,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         self.update_compliant()
 
-        await self.send_discover_based_on_needs()
+        await self.send_discover_based_on_requirements()
 
     @override
     async def _internal_stop(self, *args, **kwargs):
@@ -108,10 +108,10 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         Return current constraint for operation based on current connections
         """
 
-        if operation_name not in self.needed_operations.keys():
+        if operation_name not in self.operation_requirements.keys():
             raise KeyError(f"operation {operation_name} is not required")
 
-        constraint = copy.deepcopy(self.needed_operations[operation_name]).constraint
+        constraint = copy.deepcopy(self.operation_requirements[operation_name]).constraint
 
         for connection in self._retrieve_connections(operation_name=operation_name):
 
@@ -130,12 +130,12 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         Evaluate at run-time if core is compliant for given operation based on its configuration. It may be a time-consuming operation
         """
 
-        need = self.current_constraint_for_operation(operation_name)
+        constraint = self.current_constraint_for_operation(operation_name)
 
-        if need.mandatory is not None and len(need.mandatory) > 0:
+        if constraint.mandatory is not None and len(constraint.mandatory) > 0:
             return False
 
-        if need.minimum > 0:
+        if constraint.minimum > 0:
             return False
 
         return True
@@ -145,7 +145,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         Evaluate at run-time if core is global compliant based on its configuration. It may be a very time-consuming operation
         """
 
-        for operation_name in self.needed_operations.keys():
+        for operation_name in self.operation_requirements.keys():
             if not self.is_compliant_for_operation(operation_name):
                 return False
 
@@ -182,31 +182,31 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
     def _operation_to_discover(self) -> Dict[str, Constraint]:
         """
-        Return a dictionary `operation_name` => `not_satisfied_need`, based on current connections. This operations should be discover
+        Return a dictionary `operation_name` => `constraint`, based on current connections. This operations should be discover
         """
 
-        needed_operations: Dict[str, Constraint] = {}
-        for operation_name in self.needed_operations.keys():
-            not_satisfied_need = self.current_constraint_for_operation(operation_name)
+        operation_requirements: Dict[str, Constraint] = {}
+        for operation_name in self.operation_requirements.keys():
+            constraint = self.current_constraint_for_operation(operation_name)
 
-            discover_operation = Core._is_plugin_operation_needed_by_need(not_satisfied_need)
+            discover_operation = Core._is_plugin_operation_required_by_constraint(constraint)
 
             if not discover_operation:
                 logging.debug(f"{self}: operation {operation_name} already satisfied")
                 continue
 
-            needed_operations[operation_name] = not_satisfied_need
+            operation_requirements[operation_name] = constraint
 
-        return needed_operations
+        return operation_requirements
 
     async def _on_send_discover(self, discover_message: DiscoverMessage):
         """
         Hook called before discover message is sent
         """
 
-    async def send_discover_for_operations(self, needed_operations: Dict[str, Constraint]):
+    async def send_discover_for_operations(self, operation_requirements: Dict[str, Constraint]):
 
-        if len(needed_operations) == 0:
+        if len(operation_requirements) == 0:
             return
 
         await self.eventbus_client.subscribe(
@@ -216,7 +216,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         discover_message = DiscoverMessage(
             core_identifier=self.identifier,
-            queries=dict([(operation_name, DiscoverQuery.from_constraint(operation_name, constraint)) for operation_name, constraint in needed_operations.items()]),
+            queries=dict([(operation_name, DiscoverQuery.from_constraint(operation_name, constraint)) for operation_name, constraint in operation_requirements.items()]),
             offer_topic=self.offer_topic,
             core_keepalive_topic=self.keepalive_topic,
             core_keepalive_request_topic=self.keepalive_request_topic,
@@ -232,26 +232,26 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         self._last_discover_sent_at = datetime.now()
 
-    async def send_discover_based_on_needs(self):
-        needed_operations: Dict[str, Constraint] = self._operation_to_discover()
+    async def send_discover_based_on_requirements(self):
+        operation_requirements: Dict[str, Constraint] = self._operation_to_discover()
 
-        if len(needed_operations) > 0:
-            await self.send_discover_for_operations(needed_operations)
+        if len(operation_requirements) > 0:
+            await self.send_discover_for_operations(operation_requirements)
 
-    def _is_plugin_operation_needed_and_pluggable(self, plugin_identifier: str, offered_operation: OfferedOperation) -> bool:
+    def _is_plugin_operation_required_and_pluggable(self, plugin_identifier: str, offered_operation: OfferedOperation) -> bool:
 
-        not_satisfied_need = self.current_constraint_for_operation(offered_operation.name)
+        not_satisfied_requirement = self.current_constraint_for_operation(offered_operation.name)
 
-        if not Core._is_plugin_operation_needed_by_need(not_satisfied_need):
+        if not Core._is_plugin_operation_required_by_constraint(not_satisfied_requirement):
             return False
 
-        if not not_satisfied_need.is_compatible(plugin_identifier):
+        if not not_satisfied_requirement.is_compatible(plugin_identifier):
             return False
 
-        if not not_satisfied_need.input_is_compatible(offered_operation.input):
+        if not not_satisfied_requirement.input_is_compatible(offered_operation.input):
             return False
 
-        if not not_satisfied_need.output_is_compatible(offered_operation.output):
+        if not not_satisfied_requirement.output_is_compatible(offered_operation.output):
             return False
 
         return True
@@ -264,13 +264,13 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         Hook called to obtain setup data which generally will be sent to plugins. By default, `default_setup_data` is used
         """
 
-        return self.needed_operations[offered_operation.name].default_setup_data
+        return self.operation_requirements[offered_operation.name].default_setup_data
 
     async def _request_operation(self, plugin_identifier: str, reply_topic: str, offered_operation: OfferedOperation):
 
         logging.debug(f"{self}: operations to request: {offered_operation}")
 
-        if not self.needed_operations[offered_operation.name].constraint.output_is_compatible(offered_operation.output):
+        if not self.operation_requirements[offered_operation.name].constraint.output_is_compatible(offered_operation.output):
             return  # invalid offer
 
         output_topic: Optional[str] = None
@@ -348,7 +348,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         tasks = []
         for offered_operation in event.payload.offered_operations:
-            if self._is_plugin_operation_needed_and_pluggable(event.payload.plugin_identifier, offered_operation):
+            if self._is_plugin_operation_required_and_pluggable(event.payload.plugin_identifier, offered_operation):
                 tasks.append(asyncio.create_task(self._request_operation(
                     event.payload.plugin_identifier,
                     event.payload.reply_topic,
@@ -415,8 +415,8 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 if operation_name in self.operation_sinks:
                     handler = self.operation_sinks[operation_name]
 
-                if self.needed_operations[operation_name].has_override_sink:
-                    handler = self.needed_operations[operation_name].override_sink
+                if self.operation_requirements[operation_name].has_override_sink:
+                    handler = self.operation_requirements[operation_name].override_sink
 
                 if handler is not None:
                     try:
@@ -563,7 +563,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         self.update_compliant()
 
         if self._last_discover_sent_at is None or (self._last_discover_sent_at + timedelta(seconds=self.discovering_interval)) < datetime.now():
-            await self.send_discover_based_on_needs()
+            await self.send_discover_based_on_requirements()
 
     def __str__(self):
         return f"Core('{self.identifier}')"

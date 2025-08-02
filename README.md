@@ -674,6 +674,7 @@ You can manage them using following methods:
 - `_remove_connection` (_does not lock automatically the connection_)
 - `_connections_by_remote_identifier`: retrieves connection based on remote identifier
 - `_retrieve_connections`: to query connections
+- `_find_connection_or_fail`: find _the_ connection based on `operation_name` and `input_topic` 
 - `close_unused_connections` based on `close_connection_if_unused_after` and `last_use`
 
 #### Pending requests

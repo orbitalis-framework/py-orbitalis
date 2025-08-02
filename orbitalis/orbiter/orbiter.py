@@ -15,6 +15,7 @@ from orbitalis.events.close_connection import GracefulCloseConnectionMessage, Gr
 from orbitalis.events.keepalive import KeepaliveRequestMessage, KeepaliveMessage
 from orbitalis.orbiter.connection import Connection
 from orbitalis.orbiter.pending_request import PendingRequest
+from orbitalis.orbiter.schemaspec import Output, Input
 
 DEFAULT_DISCOVER_TOPIC = "$handshake.discover"
 DEFAULT_LOOP_INTERVAL = 1
@@ -245,7 +246,9 @@ class Orbiter(ABC):
         raise ValueError(f"{self}: no pending request for identifier '{pending_request.remote_identifier}' and operation '{pending_request.operation_name}'")
 
 
-    def _retrieve_connections(self, *, remote_identifier: Optional[str] = None, input_topic: Optional[str] = None, output_topic: Optional[str] = None, operation_name: Optional[str] = None) -> List[Connection]:
+    def _retrieve_connections(self, *, remote_identifier: Optional[str] = None, input_topic: Optional[str] = None,
+                              output_topic: Optional[str] = None, operation_name: Optional[str] = None,
+                              input: Optional[Input] = None, output: Optional[Output] = None) -> List[Connection]:
         """
         Retrieve all connections which satisfy query
         """
@@ -268,9 +271,34 @@ class Orbiter(ABC):
                 if output_topic is not None and output_topic != connection.output_topic:
                     continue
 
+                if input is not None and not input.is_compatible(connection.input):
+                    continue
+
+                if output is not None and not output.is_compatible(connection.output):
+                    continue
+
                 connections.append(connection)
 
         return connections
+
+    def _find_connection_or_fail(self, input_topic: str, operation_name: str) -> Connection:
+        """
+        Find the connection associated to given input topic and operation name.
+        Raise ValueError if too many connections are found or if there are no connections.
+        """
+
+        connections = self._retrieve_connections(
+            input_topic=input_topic,
+            operation_name=operation_name
+        )
+
+        if len(connections) <= 0:
+            raise ValueError("Connection not found")
+
+        if len(connections) >= 2:
+            raise ValueError("Too many connections found")
+
+        return connections[0]
 
     def _on_promote_pending_request_to_connection(self, pending_request: PendingRequest):
         """

@@ -3,14 +3,14 @@ from typing import List
 import asyncio
 import logging
 from busline.local.eventbus.local_eventbus import LocalEventBus
-from busline.local.local_pubsub_client import LocalPubTopicSubClientBuilder
-from orbitalis.core.need import Need, Constraint
+from orbitalis.core.requirement import OperationRequirement, Constraint
 from orbitalis.orbiter.schemaspec import Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
 from tests.plugin.lamp.lamp_plugin import LampPlugin, StatusMessage
 from tests.plugin.lamp.lamp_x_plugin import LampXPlugin
 from tests.plugin.lamp.lamp_y_plugin import TurnOnLampYMessage, TurnOffLampYMessage, LampYPlugin
+from tests.utils import build_new_local_client
 
 random.seed(42)
 logging.basicConfig(level="INFO")
@@ -34,17 +34,17 @@ def get_cores() -> List[SmartHomeCore]:
         cores.append(
             SmartHomeCore(
                 identifier=build_core_identifier(i),
-                eventbus_client=LocalPubTopicSubClientBuilder.default(),
+                eventbus_client=build_new_local_client(),
                 raise_exceptions=True,
                 with_loop=bool(random.randint(0,1)),
-                needed_operations={
-                    "turn_on": Need(Constraint(
+                operation_requirements={
+                    "turn_on": OperationRequirement(Constraint(
                         minimum=random.randint(0, 2),
                         mandatory=[build_plugin_identifier(random.randint(0, N_PLUGINS - 1))],
                         inputs=[Input.empty(), Input.from_schema(TurnOnLampYMessage.avro_schema())],
                         outputs=[Output.no_output()],
                     )),
-                    "turn_off": Need(
+                    "turn_off": OperationRequirement(
                         Constraint(
                             minimum=random.randint(0, 2),
                             mandatory=[build_plugin_identifier(random.randint(0, N_PLUGINS - 1))],
@@ -52,7 +52,7 @@ def get_cores() -> List[SmartHomeCore]:
                             outputs=[Output.no_output()],
                         )
                     ),
-                    "get_status": Need(
+                    "get_status": OperationRequirement(
                         Constraint(
                             minimum=0,
                             inputs=[Input.empty()],
@@ -77,7 +77,7 @@ def get_plugins() -> List[LampPlugin]:
             plugins.append(
                 LampXPlugin(
                     identifier=build_plugin_identifier(i),
-                    eventbus_client=LocalPubTopicSubClientBuilder.default(),
+                    eventbus_client=build_new_local_client(),
                     raise_exceptions=True,
                     with_loop=bool(random.randint(0,1)),
 
@@ -94,7 +94,7 @@ def get_plugins() -> List[LampPlugin]:
             plugins.append(
                 LampYPlugin(
                     identifier=build_plugin_identifier(i),
-                    eventbus_client=LocalPubTopicSubClientBuilder.default(),
+                    eventbus_client=build_new_local_client(),
                     raise_exceptions=True,
                     with_loop=bool(random.randint(0, 1)),
 

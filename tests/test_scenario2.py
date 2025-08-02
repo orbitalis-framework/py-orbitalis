@@ -1,7 +1,7 @@
 import asyncio
 import unittest
 
-from orbitalis.core.need import Constraint, Need
+from orbitalis.core.requirement import Constraint, OperationRequirement
 from orbitalis.orbiter.schemaspec import Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.core.smarthome_core import SmartHomeCore
@@ -37,14 +37,14 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             eventbus_client=build_new_local_client(),
             raise_exceptions=True,
             with_loop=False,
-            needed_operations={
-                "turn_on": Need(Constraint(
+            operation_requirements={
+                "turn_on": OperationRequirement(Constraint(
                     minimum=1,
                     mandatory=[self.lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
                 )),
-                "turn_off": Need(Constraint(
+                "turn_off": OperationRequirement(Constraint(
                     minimum=1,
                     mandatory=[self.lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
@@ -58,14 +58,14 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             eventbus_client=build_new_local_client(),
             raise_exceptions=True,
             with_loop=False,
-            needed_operations={
-                "turn_on": Need(Constraint(
+            operation_requirements={
+                "turn_on": OperationRequirement(Constraint(
                     minimum=1,
                     mandatory=[self.lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
                 )),
-                "turn_off": Need(Constraint(
+                "turn_off": OperationRequirement(Constraint(
                     minimum=1,
                     mandatory=[self.lamp_x_plugin.identifier],
                     inputs=[Input.empty()],

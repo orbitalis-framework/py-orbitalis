@@ -4,7 +4,7 @@ import unittest
 from busline.client.pubsub_client import PubSubClientBuilder
 from busline.mqtt.mqtt_publisher import MqttPublisher
 from busline.mqtt.mqtt_subscriber import MqttSubscriber
-from orbitalis.core.need import Constraint, Need
+from orbitalis.core.requirement import Constraint, OperationRequirement
 from orbitalis.core.state import CoreState
 from orbitalis.orbiter.schemaspec import Input, Output
 from orbitalis.plugin.operation import Policy
@@ -42,14 +42,14 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 MqttPublisher(hostname="127.0.0.1")).build(),
             raise_exceptions=True,
             with_loop=False,
-            needed_operations={
-                "turn_on": Need(Constraint(
+            operation_requirements={
+                "turn_on": OperationRequirement(Constraint(
                     minimum=1,
                     mandatory=[lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
                     outputs=[Output.no_output()]
                 )),
-                "turn_off": Need(Constraint(
+                "turn_off": OperationRequirement(Constraint(
                     minimum=1,
                     mandatory=[lamp_x_plugin.identifier],
                     inputs=[Input.empty()],
