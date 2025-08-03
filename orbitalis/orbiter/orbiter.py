@@ -16,6 +16,7 @@ from orbitalis.events.keepalive import KeepaliveRequestMessage, KeepaliveMessage
 from orbitalis.orbiter.connection import Connection
 from orbitalis.orbiter.pending_request import PendingRequest
 from orbitalis.orbiter.schemaspec import Output, Input
+from orbitalis.plugin.operation import Operation
 
 DEFAULT_DISCOVER_TOPIC = "$handshake.discover"
 DEFAULT_LOOP_INTERVAL = 1
@@ -63,8 +64,8 @@ class Orbiter(ABC):
 
     _unsubscribe_on_full_close_bucket: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set), init=False)
 
-    _stop_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
-    _pause_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
+    __stop_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
+    __pause_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
 
     def __post_init__(self):
         if 0 > self.send_keepalive_before_timelimit:
@@ -87,10 +88,6 @@ class Orbiter(ABC):
                 pending_requests.append(pending_request)
 
         return pending_requests
-
-    @property
-    def pause_loop_controller(self) -> asyncio.Event:
-        return self._pause_loop_controller
 
     @property
     def _all_connections(self) -> List[Connection]:
@@ -156,7 +153,7 @@ class Orbiter(ABC):
         )
 
         if self.with_loop:
-            asyncio.create_task(self._loop())
+            self.start_loop()
 
     async def _on_started(self, *args, **kwargs):
         """
@@ -203,7 +200,7 @@ class Orbiter(ABC):
                 )
             )
 
-        self._stop_loop_controller.set()
+        self.stop_loop()
 
         await asyncio.gather(*tasks)
 
@@ -299,6 +296,23 @@ class Orbiter(ABC):
             raise ValueError("Too many connections found")
 
         return connections[0]
+
+    async def _retrieve_and_touch_connections(self, operation_name: str, input_topic: str) -> List[Connection]:
+        """
+        Retrieve connections based on operation's name and input topic, then *lock* and touch connections.
+        Finally, connections are returned.
+        """
+
+        connections = self._retrieve_connections(
+            input_topic=input_topic,
+            operation_name=operation_name
+        )
+
+        for connection in connections:
+            async with connection.lock:
+                connection.touch()
+
+        return connections
 
     def _on_promote_pending_request_to_connection(self, pending_request: PendingRequest):
         """
@@ -780,15 +794,29 @@ class Orbiter(ABC):
         Hook called during every loop iteration
         """
 
-    async def _loop(self):
+    def start_loop(self):
+        self.__stop_loop_controller.clear()
+        self.__pause_loop_controller.clear()
+        asyncio.create_task(self.__loop())
+
+    def stop_loop(self):
+        self.__stop_loop_controller.set()
+
+    def pause_loop(self):
+        self.__pause_loop_controller.set()
+
+    def resume_loop(self):
+        self.__pause_loop_controller.clear()
+
+    async def __loop(self):
 
         await self._on_loop_start()
 
-        while not self._stop_loop_controller.is_set():
+        while not self.__stop_loop_controller.is_set():
 
             await asyncio.sleep(self.loop_interval)
 
-            if self._pause_loop_controller.is_set():
+            if self.__pause_loop_controller.is_set():
                 continue
 
             try:

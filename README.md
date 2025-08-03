@@ -150,15 +150,14 @@ Main methods:
 - `send_graceless_close_connection`: send a graceless close connection request to specified remote orbiter, therefore, self side connection will be closed immediately
 - `send_graceful_close_connection`: send a graceful close connection request to specified remote orbiter, therefore self side connection is not close immediately, but ACK is waited
 - `_close_self_side_connection`: close local connection with remote orbiter, therefore only this orbiter will no longer be able to use connection. Generally, a close connection request was sent before this method call.
-- `_loop`: contains loop logic (it should not be overridden)
 
 
 #### Loop
 
-Every orbiter has an internal loop which performs periodically operations. Loop can be avoided setting `with_loop=False`.
+Every orbiter has an internal **loop** which performs periodically operations. Automatic loop initialization can be avoided setting `with_loop=False`.
 
-Loop is stopped when `stop()` method is called, but you can stop it prematurely using `_stop_loop_controller.set()`. 
-If you want to pause loop, you must `set` and `clear`: `_pause_loop_controller`.
+Loop is stopped when `stop` method is called, but you can stop it prematurely using `stop_loop` method. 
+If you want to pause loop, you can use `pause_loop` and `resume_loop`.
 
 Additionally to hooks, the following operations (already discussed) are executed in parallel:
 
@@ -200,6 +199,8 @@ There are 4 steps:
    - **OperationNoLongerAvailable**: message used by plugins to notify core that operation is no longer available
 
 
+When an [Pending Request](#pending-requests) is *confirmed*, then a [Connection](#connections) is generated (and the related request is removed).
+
 ```mermaid
 sequenceDiagram
     Core->>Plugin: Discover
@@ -229,21 +230,177 @@ We must notice that discover and offer messages are also used to share informati
 Theoretically, this means that a plugin may send an offer without an explicit discover, 
 for example if a connection is closed and a slot for an operation becomes available. Anyway, this is not performed in current implementation.
 
-##### Pending Requests
 
-TODO
+#### Connections
 
-##### Connections
+`Connection` is a link between a core and a plugin **related to a *single* operation**, therefore more connections can be present between same core and plugin.
 
-TODO
+Regularly, connections are created after a handshake procedure, promoting a [Pending Request](#pending-requests). Generally you don't need to know how to create a connection, but if you want, you can read the [Advance Guide](#advance-guide).
+
+```mermaid
+flowchart TD
+    P["Pending Request"] --> C["Connection"]
+```
+
+`Connection` class store all information about a connection:
+
+- `operation_name`
+- `remote_identifier`
+- `incoming_close_connection_topic`: topic on which close connection request arrives from remote orbiter
+- `close_connection_to_remote_topic`: topic which orbiter must use to close connection with remote orbiter
+- `lock`: `asyncio.Lock`, used to synchronize connection uses
+- `input`: acceptable `Input`
+- `output`: sendable `Output`
+- `input_topic`
+- `output_topic`
+- `soft_closed_at`: used during graceful close connection
+- `created_at`: connection creation datetime
+- `last_use`: datetime of last use
+
+`last_use` must be updated **manually**, if you want to update it, using `touch` method on each connection (remember to *lock* the connection).
+
+For example, when a new event arrives:
+
+```python
+@dataclass
+class MyPlugin(Plugin):
+    @operation(
+        name="my_operation",
+        input=...,
+        output=...
+    )
+    async def my_operation_event_handler(self, topic: str, event: Event[...]):
+        connections = self._retrieve_connections(
+            input_topic=topic, 
+            operation_name="my_operation"
+        )
+        
+        for connection in connections:
+            async with connection.lock:
+                connection.touch()
+```
+
+Fortunately, there is an useful method called `_retrieve_and_touch_connections` which encapsulates exactly that code:
+
+```python
+await self._retrieve_and_touch_connections(
+    input_topic=topic, 
+    operation_name="my_operation"
+)
+```
+
+
+Orbiter connections are stored in `_connections` attribute.
+
+You can manage them using following methods:
+
+- `_add_connection`
+- `_remove_connection` (_does not lock automatically the connection_)
+- `_connections_by_remote_identifier`: retrieves connection based on remote identifier
+- `_retrieve_connections`: to query connections
+- `_find_connection_or_fail`: find _the_ connection based on `operation_name` and `input_topic` 
+- `close_unused_connections` based on `close_connection_if_unused_after` and `last_use`
+
 
 #### Connection Close Procedure
 
-TODO
+An [orbiter](#orbiter) (Core or Plugin) can close a connection in every moment. There are two ways to close a connection: *Graceless* or *Graceful*.
+
+In the following example we suppose an orbiter `"my_orbiter1"` that closes connection with another orbiter `"my_orbiter2"` related to operation `"my_operation"`.
+
+In **Graceless** procedure the orbiter sends a `GracelessCloneConnectionMessage` to remote one and close connection immediately:
+
+```mermaid
+sequenceDiagram
+    Orbiter 1->>Orbiter 1: Close connection
+    Orbiter 1->>Orbiter 2: Graceless close connection
+    Orbiter 2->>Orbiter 2: Close connection
+```
+
+```python
+orbiter1.send_graceless_close_connection(
+    remote_identifier="my_orbiter2",
+    operation_name="my_operation"
+)
+```
+
+In **Graceful** the orbiter sends a `GracefulCloseConnectionMessage` to remote one. Remote orbiter is able to perform some operations before connection is actually closed. Remote orbiter must send a `CloseConnectionAckMessage`, after that connection is closed. If `graceful_close_timeout` is not `None` is used to send graceless close connection if ACK is not sent. 
+
+```mermaid
+sequenceDiagram
+    Orbiter 1->>Orbiter 2: Graceful close connection
+    activate Orbiter 1
+    Orbiter 2->>Orbiter 2: Some operations
+    Orbiter 2->>Orbiter 2: Close connection
+    Orbiter 2->>Orbiter 1: Close connection ACK
+    deactivate Orbiter 1
+    Orbiter 1->>Orbiter 1: Close connection
+```
+
+```python
+orbiter1.send_graceful_close_connection(
+    remote_identifier="my_orbiter2",
+    operation_name="my_operation"
+)
+```
+
+When all connections with a remote orbiter are closed, orbiter unsubscribes itself from topics in `_unsubscribe_on_full_close_bucket` field.
+
+Both during graceful or graceless method call, you can provide data (`bytes`) which will be sent when connection is actually closed.
+For example, considering graceful procedure:
+
+```python
+orbiter1.send_graceful_close_connection(
+    remote_identifier="my_orbiter2",
+    operation_name="my_operation",
+    data=bytes(...)     # serialize your data
+)
+```
+
+Hooks:
+
+- `_on_graceless_close_connection`: called before graceless close connection request is sent
+- `_on_close_connection`: called when a connection is closed
+- `_on_graceful_close_connection`: called before sending graceful close connection request
+
+> [!NOTE]
+> These methods are also called when a connection is closed using method `close_unused_connections` (used to close unused connections based on `close_connection_if_unused_after` and `last_use`).
 
 #### Keepalive
 
-TODO
+**Keepalive mechanism** allows orbiters to preserve connections during the time. Every orbiter must send a keepalive to all own linked orbiters.
+
+An orbiter can _request_ a keepalive using `send_keepalive_request` method, which sends a `KeepaliveRequestMessage`.
+
+```mermaid
+sequenceDiagram
+    Orbiter 1->>Orbiter 2: Keepalive request
+    Orbiter 2->>Orbiter 1: Keepalive
+```
+
+Keepalive are sent using `KeepaliveMessage` messages. You can manually send a keepalive using `send_keepalive` method.
+
+In addiction, `send_all_keepalive_based_on_connections` and `send_keepalive_based_on_connections_and_threshold` are provided.
+`send_all_keepalive_based_on_connections` sends a keepalive to all remote orbiters which have an opened connection, 
+instead `send_keepalive_based_on_connections_and_threshold` sends a keepalive to all remote orbiters which have an opened connection 
+only if it is in range `send_keepalive_before_timelimit` seconds before remote orbiter considers it _dead_.
+
+You can know which are dead remote orbiters thanks to `dead_remote_identifiers` property.
+
+Main related fields:
+
+- `_others_considers_me_dead_after`
+- `_remote_keepalive_request_topics`
+- `_remote_keepalive_topics`
+- `_last_seen`
+- `_last_keepalive_sent`
+
+Hooks:
+
+- `_on_keepalive_request`: called on keepalive request, before response
+- `_on_keepalive`: called on inbound keepalive
+
+
 
 ### Plugin
 
@@ -300,6 +457,18 @@ We suppose that [User Guide](#user-guide) was read before this, because in this 
 
 TODO
 
+#### Loop
+
+Loop is managed in `__loop` (private) method. The method is private because the entire logic is fully managed and hooks are provided.
+
+Basically, loop is controlled by two `asyncio.Event`:
+
+- `__stop_loop_controller`: used in `while` condition, if it is set, loop is stopped
+- `__pause_loop_controller`: if it is set, loop iteration are skipped
+
+As already mentioned in [User Guide](#user-guide), `set` and `clear` method of `asyncio.Event` are wrapped in `stop_loop`, `pause_loop`, `resume_loop` methods.
+
+
 ### Communication protocols more in deep
 
 TODO
@@ -334,6 +503,23 @@ sequenceDiagram
 ```
 
 TODO
+
+
+##### Pending Requests
+
+`PendingRequest` contains information about its future [connection](#connections). It is built during [handshake](#handshake) process, so generally you should not use this class.
+Anyway, it has `into_connection` method to build a `Connection` and, similarly to connections, has a `lock` attribute to synchronize elaborations.
+`created_at` is the field used to check if a pending request must be discarded.
+
+You can manage pending requests thanks to:
+
+- `_pending_requests_by_remote_identifier`: retrieves pending requests based on remote identifier
+- `_add_pending_request` 
+- `_remove_pending_request` (_does not lock automatically the pending request_)
+- `_is_pending` to know if there is a pending request related to a remote identifier and an operation name
+- `_promote_pending_request_to_connection`: (_does not lock automatically the pending request_) transforms a pending request into a connection
+- `discard_expired_pending_requests` based on `pending_requests_expire_after` and `created_at`
+
 
 
 

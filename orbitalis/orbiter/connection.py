@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Self
 
 from orbitalis.orbiter.schemaspec import Input, Output
 
