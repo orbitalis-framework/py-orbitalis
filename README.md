@@ -1,6 +1,435 @@
 # Orbitalis
 
-Distributed, event-based, micro-kernel library for Python.
+**Orbitalis** is a **distributed**, **event-based micro-kernel** library for Python designed to simplify the construction of *loosely coupled, scalable, and modular systems*.
+
+At its core, Orbitalis provides a lightweight yet powerful foundation for building event-driven applications using an event bus mechanism. It integrates natively with [Busline](https://github.com/orbitalis-framework/py-busline), a flexible and efficient event bus library that handles message distribution across system components, whether local or distributed.
+
+If you don't want to read the user guide, you can skip to [Practical Example](#practical-example).
+
+
+## User Guide
+
+In this section we will explain how to use Orbitalis. If you want to know more details about this library, please read the [Advance Guide](#advance-guide). 
+
+Every time-based values are expressed in seconds, because `asyncio.sleep` is used.
+
+### Preliminary: Busline
+
+If you know what [Busline](https://github.com/orbitalis-framework/py-busline) is, you can skip this section.
+
+[Busline](https://github.com/orbitalis-framework/py-busline) is an agnostic asynchronous pub/sub library, which represents a good starting point to implement a wide set of application thanks to its pub/sub abstract layer.
+
+It natively supports MQTT and Local event bus and you should know how to create pub/sub clients in order to allow your components to share messages.
+
+We advice to read [Busline](https://github.com/orbitalis-framework/py-busline) documentation before continue.
+
+### Overview
+
+Orbitalis follows the **micro-kernel** (a.k.a. [**Plugin**](#plugin)) architectural pattern, where a minimal [**Core**](#core) (the kernel) handles only the essential system functions—like loading and managing modules, and routing events—while all additional features are implemented as independent [**Plugins**](#plugin) that interact via the event bus.
+
+This design brings several advantages:
+
+- **Separation of Concerns**: Each module is self-contained and focused on a specific task or domain
+- **Extensibility**: New features can be added without modifying the core, reducing the risk of breaking existing functionality
+- **Flexibility**: Modules can be enabled, disabled, or replaced at runtime
+- **Maintainability**: Smaller code units are easier to test, debug, and reuse
+- **Scalability**: Modules can be distributed across processes or machines and communicate via events
+
+
+```mermaid
+flowchart LR
+      C1 --> P1
+      C1 <--> P3
+
+      C2 <--> P2
+      P3 <--> C2
+      P4 --> C2
+
+
+      C1@{ shape: circle, label: "Core 1" }
+      C2@{ shape: circle, label: "Core 2" }
+      P1@{ shape: stadium, label: "Plugin 1" }
+      P2@{ shape: stadium, label: "Plugin 2" }
+      P3@{ shape: stadium, label: "Plugin 3" }
+      P4@{ shape: stadium, label: "Plugin 4" }
+```
+
+Orbitalis allows to have more Cores and more Plugins, even in *different domains* thanks to [Busline](https://github.com/orbitalis-framework/py-busline) capabilities, which can be instantiate **at runtime** thanks to a powerful [handshake mechanism](#handshake). In fact, for example, we can have some plugins connected with MQTT and other with a Local event bus at the same time.
+This allows you a powerful management of your components.
+
+In other words, Orbitalis allows you to start cores and plugins, connect them together and execute plugin operations.
+Cores and plugins can be started in any time and connections are created based on pre-defined policies.
+
+Messages used by Orbitalis are **Avro messages** because we need input and output schemas.
+
+```mermaid
+flowchart LR
+      C1 <--> EB1
+      C1 <--> EB2
+
+      C2 <--> EB1
+      C2 <--> EB2
+    
+      EB1 <--> P3
+      EB1 <--> P1
+      
+      EB2 <--> P2
+      EB2 <--> P4
+
+      C1@{ shape: circle, label: "Core 1" }
+      C2@{ shape: circle, label: "Core 2" }
+      P1@{ shape: stadium, label: "Plugin 1" }
+      P2@{ shape: stadium, label: "Plugin 2" }
+      P3@{ shape: stadium, label: "Plugin 3" }
+      P4@{ shape: stadium, label: "Plugin 4" }
+
+      EB1@{ shape: das, label: "MQTT Broker" }
+      EB2@{ shape: das, label: "Local EventBus" }
+```
+
+
+### Orbiter
+
+`Orbiter` is the base class which provides common capabilities to components. 
+Therefore, you can use the provided methods both in [Cores](#core) and [Plugins](#plugin).
+
+It manages _[pending requests](#pending-requests), [connections](#connections), [keepalive](#keepalive) and [connection close procedure](#connection-close-procedure)_. In addiction, it has useful _shared methods_ and main _loop_.
+
+```mermaid
+classDiagram
+    Orbiter <|-- Core
+    Orbiter <|-- Plugin
+```
+
+Main public attributes:
+
+- `identifier` is the _unique_ identifier
+- `eventbus_client` is a [Busline](https://github.com/orbitalis-framework/py-busline) client, used to send events
+- `discover_topic` specifies topic used to send discover messages
+- `raise_exceptions` if `True`, exceptions are raised, otherwise they are managed by try/catch
+- `loop_interval` specifies how often the loop iterations are called (it is a minimum value, because maximum depends on weight of operations in loop)
+- `with_loop` set to `False` if you don't want the loop (care about _what_ [loop](#loop) do)
+- `close_connection_if_unused_after` if not None, it specifies how many seconds can pass without use a connection, then it is closed
+- `pending_requests_expire_after` if not None, it specifies how many seconds can pass before that a pending request is discarded 
+- `consider_others_dead_after` states how many seconds can pass before that a remote orbiter is considered dead if no keepalive arrives
+- `send_keepalive_before_timelimit` states how many seconds before a keepalive message is sent that other remote orbiter considers current orbiter dead
+- `graceful_close_timeout`: states how many seconds a graceful close connection can be pending
+
+Main hooks:
+
+- `_get_on_close_data`: used to obtain data to send on close connection, by default None is returned
+- `_on_starting`: called before starting
+- `_internal_start`: actual implementation to start the orbiter
+- `_on_started`: called after starting
+- `_on_stopping`: called before stopping
+- `_internal_stop`: actual implementation to stop the orbiter
+- `_on_stopped`: called after stopping
+- `_on_promote_pending_request_to_connection`: called before promotion
+- `_on_keepalive_request`: called on keepalive request, before response
+- `_on_keepalive`: called on inbound keepalive
+- `_on_graceless_close_connection`: called before graceless close connection request is sent
+- `_on_close_connection`: called when a connection is closed
+- `_on_graceful_close_connection`: called before sending graceful close connection request
+- `_on_loop_start`: called on loop start
+- `_on_new_loop_iteration`: called before every loop iteration
+- `_on_loop_iteration_end`: called at the end of every loop iteration
+- `_on_loop_iteration`: called during every loop iteration
+
+Main methods:
+
+- `_retrieve_connections`: retrieve all connections which satisfy query
+- `discard_expired_pending_requests`: remove expired pending requests and return total amount of discarded requests 
+- `close_unused_connections`: send a graceful close request to all remote orbiter if connection was unused based on `close_connection_if_unused_after`
+- `force_close_connection_for_out_to_timeout_pending_graceful_close_connection`: send graceless close connection based on `graceful_timeout` if a connection is in close pending due to graceful close connection 
+- `update_acquaintances`: update knowledge about keepalive request topics, keepalive topics and dead time
+- `have_seen`: update last seen for remote orbiter
+- `send_keepalive`
+- `send_keepalive_request`
+- `send_all_keepalive_based_on_connections`: send keepalive messages to all remote orbiters which have a connection with this orbiter
+- `send_keepalive_based_on_connections_and_threshold`: send keepalive messages to all remote orbiters which have a connection with this orbiter only if `send_keepalive_before_timelimit` seconds away from being considered dead this orbiter
+- `send_graceless_close_connection`: send a graceless close connection request to specified remote orbiter, therefore, self side connection will be closed immediately
+- `send_graceful_close_connection`: send a graceful close connection request to specified remote orbiter, therefore self side connection is not close immediately, but ACK is waited
+- `_close_self_side_connection`: close local connection with remote orbiter, therefore only this orbiter will no longer be able to use connection. Generally, a close connection request was sent before this method call.
+- `_loop`: contains loop logic (it should not be overridden)
+
+
+#### Loop
+
+Every orbiter has an internal loop which performs periodically operations. Loop can be avoided setting `with_loop=False`.
+
+Loop is stopped when `stop()` method is called, but you can stop it prematurely using `_stop_loop_controller.set()`. 
+If you want to pause loop, you must `set` and `clear`: `_pause_loop_controller`.
+
+Additionally to hooks, the following operations (already discussed) are executed in parallel:
+
+- `_on_loop_iteration`
+- `close_unused_connections`
+- `discard_expired_pending_requests`
+- `force_close_connection_for_out_to_timeout_pending_graceful_close_connection`
+- `send_keepalive_based_on_connections_and_threshold`
+
+Hooks:
+
+- `_on_loop_start`: called on loop start
+- `_on_new_loop_iteration`: called before every loop iteration
+- `_on_loop_iteration_end`: called at the end of every loop iteration
+- `_on_loop_iteration`: called during every loop iteration
+
+
+### Introduction to Core-Plugin Communication
+
+Orbitalis implemented different communication protocol which are used to ensure that orbiters can share information and connect them together.
+
+If you only use this library, you should not care about their implementation details, because every was made by us. Instead, if you want to know more or if you want to contribute, please read the [Advance Guide](#advance-guide). 
+
+#### Handshake
+
+To allow cores and plugins to create connections a handshake mechanism was implemented based on how DHCP works.
+
+![DHCP](doc/assets/images/dhcp.jpg)
+
+There are 4 steps:
+
+1. **Discover**: message used by cores to notify plugins of their presence and to ask operations connections, core provides a full set of pluggable operations with related information
+2. **Offer**: Message used by plugins to response to discover message, providing their base information and a list of offered operations. List of offered operations can be smaller than fullset provided by discover
+3. **Reply**
+   - **Request**: message used by core to formally request an operation. Every operation has own request. Core provides additional information to finalize the connection
+   - **Reject**: message used by core to formally reject an operation (e.g., not needed anymore). Every operation has own reject
+4. **Response**
+   - **Confirm**: message used by plugins to confirm the connection creation
+   - **OperationNoLongerAvailable**: message used by plugins to notify core that operation is no longer available
+
+
+```mermaid
+sequenceDiagram
+    Core->>Plugin: Discover
+    Plugin->>Core: Offer
+    par for each offered operation
+        alt is still needed
+            Core->>Plugin: Request
+        else not needed anymore
+            Core->>Plugin: Reject
+        end
+    end
+    par for each requested operation
+        alt is still available
+            Plugin->>Core: Confirm
+        else operation no longer available
+            Plugin->>Core: OperationNoLongerAvailable
+        end
+    end
+```
+
+Orbiters which are related to the same context must use the same **discover topic** (by default `$handshake.discover`).
+It can be set using `discover_topic` attribute.
+
+Other topics are automatically generated, but generation can be modified overriding `_build_*` methods.
+
+We must notice that discover and offer messages are also used to share information about presence of cores/plugins.
+Theoretically, this means that a plugin may send an offer without an explicit discover, 
+for example if a connection is closed and a slot for an operation becomes available. Anyway, this is not performed in current implementation.
+
+##### Pending Requests
+
+TODO
+
+##### Connections
+
+TODO
+
+#### Connection Close Procedure
+
+TODO
+
+#### Keepalive
+
+TODO
+
+### Plugin
+
+TODO
+
+#### Operations
+
+TODO
+
+
+### Core
+
+TODO
+
+#### Sink
+
+TODO
+
+#### Execute an operation
+
+TODO
+
+
+
+
+
+
+
+
+## Practical Example
+
+TODO
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Advance Guide
+
+In this section we have inserted more details about library implementation which you can use to modify regular behavior.
+
+We suppose that [User Guide](#user-guide) was read before this, because in this section we only add more details. 
+
+
+### Orbiter
+
+TODO
+
+### Communication protocols more in deep
+
+TODO
+
+#### Handshake
+
+```mermaid
+sequenceDiagram
+    Core->>Plugin: Discover
+    Plugin->>Plugin: New pending requests
+    Plugin->>Core: Offer
+    par for each offered operation
+        alt is still needed
+            Core->>Core: New pending request
+            Core->>Plugin: Request
+        else not needed anymore
+            Core->>Plugin: Reject
+            Plugin->>Plugin: Remove pending request
+        end
+    end
+    par for each requested operation
+        alt is still available
+            Plugin->>Plugin: Promote pending request to connection
+            Plugin->>Core: Confirm
+            Core->>Core: Promote pending request to connection
+        else operation no longer available
+            Plugin->>Plugin: Remove pending request
+            Plugin->>Core: OperationNoLongerAvailable
+            Core->>Core: Remove pending request
+        end
+    end
+```
+
+TODO
+
+
+
+
+
+
+## Future Work
+
+We have planned to allow Plugins to send an offer in a second moment, as explained in [handshake](#handshake) section. To do this, we are going to modify Discover message to allow Cores to decide if this new feature must be considered thanks to a boolean flag. 
+
+
+
+## Contribute
+
+In order to coordinate the work, please open an issue or a pull request.
+
+**Thank you** for your contributions!
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ## Quick start
 
