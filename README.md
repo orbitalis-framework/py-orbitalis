@@ -289,7 +289,6 @@ await self._retrieve_and_touch_connections(
 )
 ```
 
-
 Orbiter connections are stored in `_connections` attribute.
 
 You can manage them using following methods:
@@ -301,6 +300,9 @@ You can manage them using following methods:
 - `_find_connection_or_fail`: find _the_ connection based on `operation_name` and `input_topic` 
 - `close_unused_connections` based on `close_connection_if_unused_after` and `last_use`
 
+
+> [!IMPORTANT]
+> Remember that potentially you can have more connections associated with the same pair input topic and operation name, based on how you have defined builder methods for input/output topics. This is the reason behind the fact that you don't receive a single connection by default as an input parameter. Anyway, if you are sure that **only one connection** is present, you can use `_find_connection_or_fail` as specified above.
 
 #### Connection Close Procedure
 
@@ -404,11 +406,212 @@ Hooks:
 
 ### Plugin
 
-TODO
+`Plugin` is an [Orbiter](#orbiter) and it is basically an _operations provider_. In a certain sense, plugins lent possibility to execute their operations.
+
+In particular, every plugin has a set of operations which are exposed to other components (i.e., cores).
+Only connected [Cores](#core) should execute operations, but this is not strictly ensured, you should check if there is a valid connection during operation elaboration.
+You can check this using `_retrieve_connections` or `_find_connection_or_fail`.
+
+A plugin is a state machine which follows this states:
+
+```mermaid
+stateDiagram-v2
+    [*] --> CREATED
+    CREATED --> RUNNING: start()
+    RUNNING --> STOPPED: stop()
+    STOPPED --> RUNNING: start()
+    STOPPED --> [*]
+```
+
+You can easily create a new plugin inheriting `Plugin` abstract class. Remember to use `@dataclass` For example:
+
+```python
+@dataclass
+class MyPlugin(Plugin):
+    ... # your operations
+```
+
+
+Main hooks:
+
+- `_on_new_discover`: called when a new discover message arrives
+- `_on_reject`: called when a reject message arrives
+- `_setup_operation`: called to set up operation when connection is created
+- `_on_request`: called when a new request message arrives
+- `_on_reply`: called when a new reply message arrives
+
+Main methods:
+
+- `send_offer`: send a new offer message in given topic to given core identifier (it should be used only if you want to send an offer message manually)
+- `with_operation`: generally used during creation, allows you to specify additional operations (but generally we use decorator)
+- `with_custom_policy`: generally used during creation, allows you to specify a custom operation policy
+
 
 #### Operations
 
-TODO
+
+An **operation** (`Operation`) represents a feature of a plugin, which is exposed and can be executed remotely. 
+Operations are managed by `OperationsProviderMixin` which also provides builder-like methods.
+
+Every operation has the following attributes:
+
+- `name`: unique name which identify the operation
+- `handler`: [Busline](https://github.com/orbitalis-framework/py-busline) handler, which will be used to handle inbound events
+- `policy`: specifies default operation lending rules, you can override this using `with_custom_policy` method or modifying `operations` attribute directly
+- `input`: specifies which is the acceptable input
+- `output`: specifies which is the sendable output
+
+Even if output can be specified, if a `Core` doesn't need it, it should not sent. Obviously, you decide which messages must be sent in which topics, so you must ensure the compliance.
+
+You can **add or modify manually operations** to a plugin thanks to `operations` attribute, otherwise you can use `@operation` **decorator**. 
+
+`@operation` if you don't provide an `input` or an `output`, they are considered "no input/output" (see [input/output](#input--output)). 
+If you don't specify `default_policy`, `Policy.no_constraints()` is assigned.
+
+`@operation` automatically add to `operations` attributes the generated `Operation` object, related to (operation) `name` key.
+
+For example, if you want to create a plugin having an operation `"lowercase"` which supports strings as input and produces strings (without lent constraints, i.e. no policy):
+
+```python
+@dataclass
+class LowercaseTextProcessorPlugin(Plugin):
+
+    @operation(
+        name="lowercase",       # operation's name
+        input=Input.from_message(StringMessage),    # operation's input
+        output=Output.from_message(StringMessage)   # operation's output
+        # no policy is specified => Policy.no_constraints()
+    )
+    async def lowercase_event_handler(self, topic: str, event: Event[StringMessage]):
+        # NOTE: input message specified in @operation should be the same of 
+        # what is specified as type hint of event parameter
+
+        # Retrieve input string value, remember that it is wrapped into StringMessage
+        input_str = event.payload.value
+
+        lowercase_text = input_str.lower()  # process the string
+
+        # Retrieve and touch related connections
+        connections = self._retrieve_and_touch_connections(
+            input_topic=topic, 
+            operation_name="lowercase"
+        )
+
+        tasks = []
+        for connection in connections:
+
+            # Only if the connection expects an output
+            # it is published in the related topic
+            # specified by `connection.output_topic`
+            if connection.has_output:
+                tasks.append(
+                    asyncio.create_task(
+                        self.eventbus_client.publish(
+                            connection.output_topic,
+                            lowercase_text  # will be wrapped into StringMessage
+                        )
+                    )
+                )
+
+        await asyncio.gather(*tasks)    # wait publishes
+```
+
+> [!NOTE]
+> Method name is not related to operation's name.
+
+
+##### Policy
+
+`Policy` allows you to specify for an operation:
+
+- `maximum` amount of connections
+- `allowlist` of remote orbiters
+- `blocklist` of remote orbiters
+
+Obviously, you can specify `allowlist` or `blocklist`, not both.
+
+If you don't want constraints: `Policy.no_constraints()`.
+
+If you use `@operation`, you can specified a *default policy*, which is what is used if you don't override it during plugin initialization.
+Anyway, you could manage manually operations' policies, but we advise against.
+
+```python
+@dataclass
+class LowercaseTextProcessorPlugin(Plugin):
+
+    @operation(
+        name="lowercase",
+        input=Input.from_message(StringMessage),
+        output=Output.from_message(StringMessage),
+        default_policy=Policy(
+            ... # insert here you constraints
+        )
+    )
+    async def lowercase_event_handler(self, topic: str, event: Event[StringMessage]):
+        ...
+```
+
+As already mentioned, if you want to override default policy for a plugin's operation you can use `with_custom_policy`.
+
+For example, if you want to add an allowlist (within core identifier `"my_core"`) for the above plugin, related to operation `"lowercase"`:
+
+```python
+plugin = LowercaseTextProcessorPlugin(...).with_custom_policy(
+            operation_name="lowercase",
+            policy=Policy(allowlist=["my_core"])
+        )
+```
+
+##### Input & Output
+
+`Input` and `Output` are both `SchemaSpec`, i.e. the way to specify a schema set.
+
+In a `SchemaSpec` we can specify `support_empty_schema` if we want to support payload-empty events, 
+`support_undefined_schema` if we want to accept every schema and/or a schema list (`schemas`). A schema is a string.
+
+We do have an input or an output only if:
+
+```python
+support_undefined_schema or support_empty_schema or has_some_explicit_schemas
+```
+
+In other words, we must always specify an `Input`/`Output` even if it is "no input/output". 
+We can easily generate a "no input/output" thanks to: 
+
+```python
+input = Input.no_input()
+
+assert not input.has_input
+
+output = Output.no_output()
+
+assert not output.has_output
+```
+
+If we want to generate a filled `Input`/`Output`:
+
+```python
+Input.from_message(MyMessage)
+
+Input.from_schema(MyMessage.avro_schema())
+
+Input.empty()
+
+Input.undefined()
+
+Input(schemas=[...], support_empty_schema=True, support_undefined_schema=False)
+```
+
+By default, given that we use Avro JSON schemas, two schemas are compatible if the dictionary version of both is equal or
+if the string version of both is equal.
+
+For this reason, you must avoid time-based default value in your classes, because Avro set as default a time-variant value. 
+Therefore, in this way, two same-class schema are **different**, even if they are related to the same class.
+
+```python
+created_at: datetime = field(default_factory=lambda: datetime.now())    # AVOID !!!
+```
+
 
 
 ### Core
@@ -469,6 +672,12 @@ Basically, loop is controlled by two `asyncio.Event`:
 As already mentioned in [User Guide](#user-guide), `set` and `clear` method of `asyncio.Event` are wrapped in `stop_loop`, `pause_loop`, `resume_loop` methods.
 
 
+#### Custom loop
+
+TODO: how to create a custom loop
+
+
+
 ### Communication protocols more in deep
 
 TODO
@@ -521,7 +730,18 @@ You can manage pending requests thanks to:
 - `discard_expired_pending_requests` based on `pending_requests_expire_after` and `created_at`
 
 
+### Plugin
 
+#### Manual operation management
+
+TODO
+
+
+### Core
+
+#### Manual sink management
+
+TODO
 
 
 
