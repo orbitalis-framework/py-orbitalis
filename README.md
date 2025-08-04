@@ -262,31 +262,51 @@ flowchart TD
 For example, when a new event arrives:
 
 ```python
+# Following a custom plugin (MyPlugin) with an operation "my_operation"
 @dataclass
 class MyPlugin(Plugin):
     @operation(
+        # operation name
         name="my_operation",
-        input=...,
-        output=...
+        
+        # operation is fed with Int64Message messages (integer)
+        input=Input.from_message(Int64Message),
+        
+        # operation doesn't send any output
+        output=Output.no_output()
     )
-    async def my_operation_event_handler(self, topic: str, event: Event[...]):
+    async def its_event_handler(self, topic: str, event: Event[...]):
+
+        # Retrieve connections related to the input topic and the operation name
         connections = self._retrieve_connections(
             input_topic=topic, 
             operation_name="my_operation"
         )
         
+        # Touch each operation to update `last_use`
         for connection in connections:
-            async with connection.lock:
+            async with connection.lock:     # lock connection to be async-safe
                 connection.touch()
 ```
 
 Fortunately, there is an useful method called `_retrieve_and_touch_connections` which encapsulates exactly that code:
 
 ```python
-await self._retrieve_and_touch_connections(
-    input_topic=topic, 
-    operation_name="my_operation"
-)
+# Same plugin of previous example, 
+# but in which _retrieve_and_touch_connections is used
+
+@dataclass
+class MyPlugin(Plugin):
+    @operation(
+        name="my_operation",
+        input=Input.from_message(Int64Message),
+        output=Output.no_output()
+    )
+    async def its_event_handler(self, topic: str, event: Event[...]):
+        await self._retrieve_and_touch_connections(
+            input_topic=topic, 
+            operation_name="my_operation"
+        )
 ```
 
 Orbiter connections are stored in `_connections` attribute.
@@ -353,7 +373,7 @@ For example, considering graceful procedure:
 
 ```python
 orbiter1.send_graceful_close_connection(
-    remote_identifier="my_orbiter2",
+    remote_identifier="my_orbiter2",    # identifier of orbiter related to connection to close
     operation_name="my_operation",
     data=bytes(...)     # serialize your data
 )
@@ -428,7 +448,7 @@ You can easily create a new plugin inheriting `Plugin` abstract class. Remember 
 ```python
 @dataclass
 class MyPlugin(Plugin):
-    ... # your operations
+    ... # your plugin's operations and logic
 ```
 
 
@@ -448,7 +468,6 @@ Main methods:
 
 
 #### Operations
-
 
 An **operation** (`Operation`) represents a feature of a plugin, which is exposed and can be executed remotely. 
 Operations are managed by `OperationsProviderMixin` which also provides builder-like methods.
@@ -544,11 +563,11 @@ class LowercaseTextProcessorPlugin(Plugin):
         input=Input.from_message(StringMessage),
         output=Output.from_message(StringMessage),
         default_policy=Policy(
-            ... # insert here you constraints
+            ... # insert here you constraints (e.g. allowlist or maximum)
         )
     )
     async def lowercase_event_handler(self, topic: str, event: Event[StringMessage]):
-        ...
+        ...     # operation's logic
 ```
 
 As already mentioned, if you want to override default policy for a plugin's operation you can use `with_custom_policy`.
@@ -556,9 +575,10 @@ As already mentioned, if you want to override default policy for a plugin's oper
 For example, if you want to add an allowlist (within core identifier `"my_core"`) for the above plugin, related to operation `"lowercase"`:
 
 ```python
-plugin = LowercaseTextProcessorPlugin(...).with_custom_policy(
-            operation_name="lowercase",
-            policy=Policy(allowlist=["my_core"])
+plugin = LowercaseTextProcessorPlugin(...)
+        .with_custom_policy(        # default policy specified with @operation will be override
+            operation_name="lowercase",     # target operation
+            policy=Policy(allowlist=["my_core"])    # new custom policy
         )
 ```
 
@@ -591,14 +611,19 @@ assert not output.has_output
 If we want to generate a filled `Input`/`Output`:
 
 ```python
+# Input related with MyMessage
 Input.from_message(MyMessage)
 
+# Input related with MyMessage, same as above
 Input.from_schema(MyMessage.avro_schema())
 
+# Input which accepts empty events
 Input.empty()
 
+# Input which accepts any payload
 Input.undefined()
 
+# Manual initialization of an Input object
 Input(schemas=[...], support_empty_schema=True, support_undefined_schema=False)
 ```
 
@@ -616,11 +641,201 @@ created_at: datetime = field(default_factory=lambda: datetime.now())    # AVOID 
 
 ### Core
 
-TODO
+`Core` is an [Orbiter](#orbiter) and it is the component which connects itself to [plugins](#plugin), in order to be able to **execute their operations**.
+
+We must notice that Orbitalis' Cores are able to manage operations having different inputs/outputs (but same name), thanks to (Avro) schemas.
+
+We can use a core to execute operations and collect outputs (if they are present).
+
+```mermaid
+sequenceDiagram
+    Core->>Plugin: Execute Operation (with Input)
+    Plugin-->>Core: Output (gathered by sink)
+```
+
+A core can also receive messages without an explicit `execute` call, e.g. a plugin can send information periodically, such as a report.
+
+```mermaid
+sequenceDiagram
+    Plugin->>Core: Message (gathered by sink)
+    Plugin->>Core: Message (gathered by sink)
+    Plugin->>Core: Message (gathered by sink)
+```
+
+We can specify needed operations which make a core compliant with respect to our needs. In fact, `Core` follows these states changes:
+
+```mermaid
+stateDiagram-v2
+    [*] --> CREATED
+    CREATED --> COMPLIANT: start()
+    CREATED --> NOT_COMPLIANT: start()
+    COMPLIANT --> NOT_COMPLIANT
+    NOT_COMPLIANT --> COMPLIANT
+    COMPLIANT --> STOPPED: stop()
+    NOT_COMPLIANT --> STOPPED: stop()
+    STOPPED --> [*]
+```
+
+`COMPLIANT` when all needs are satisfied, otherwise `NOT_COMPLIANT`.
+
+Main public attributes:
+
+- `discovering_interval`: interval between two discover messages (only when loop is enabled)
+- `operation_requirements`: specifies which operations are needed to be compliant, specifying their constraints and optionally the default setup data or the sink
+- `operation_sinks` (see [sinks](#sinks))
+
+Main hooks:
+
+- `_on_compliant`: called when core becomes compliant
+- `_on_not_compliant`: called when core becomes not compliant
+- `_on_send_discover`: called before discover message is sent
+- `_get_setup_data`: called to obtain setup data which generally will be sent to plugins. By default, `default_setup_data` is used
+- `_on_new_offer`: called when a new offer arrives
+- `_on_confirm_connection`: called when a confirm connection arrives
+- `_on_operation_no_longer_available`: called when operation no longer available message arrives
+- `_on_response`: called when response message arrives
+
+Main methods:
+
+- `current_constraint_for_operation`: returns current constraint for operation based on current connections
+- `is_compliant_for_operation`: evaluate at run-time if core is compliant for given operation based on its configuration. It may be a time-consuming operation
+- `is_compliance`: evaluate at run-time if core is global compliant based on its configuration. It may be a very time-consuming operation
+- `update_compliant`: use `is_compliant` to update core's state
+- `_operation_to_discover`: returns a dictionary `operation_name` => `not_satisfied_need`, based on current connections. This operations should be discover
+- `execute`: execute the operation by its name, sending provided data. You must specify which plugin must be used, otherwise `ValueError` is raised.
+- `sudo_execute`: bypass all checks and send data to topic
+
+```python
+# Create a custom core
+
+@dataclass
+class MyCore(Core):
+    ...     # core's sinks and logic
+```
+
+#### Required operations
+
+
+`operation_requirements` attribute is a dictionary where keys are operation names and values are `OperationRequirement` objects.
+
+We can specify:
+
+- `constraint`: set of rules to manage connection requests
+- `override_sink`: to specify a different sink with respect to default provided by core 
+- `default_setup_data`: bytes which are send by default to plugin on connection establishment
+
+`Constraint` class allows you to be very granular in rule specifications:
+
+- `mandatory`: list of needed plugin identifiers
+- `minimum` number of additional plugins (plugins in mandatory list are excluded)
+- `maximum` number of additional plugins (plugins in mandatory list are excluded)
+- `allowlist`/`blocklist`
+- `inputs`: represents the list of supported `Input` 
+- `outputs`: represents the list of supported `Output` 
+
+In other words, you can specify a list of possible and different inputs and outputs which are supported by your core.
+
+You must observe that inputs and outputs are not related, therefore all possible combinations are evaluated.
+
+For example, if your core needs these operations:
+
+- `operation1`: `"plugin1"` is mandatory, at least 2 additional plugins, maximum 5 additional plugins. Borrowable `operation1` can be fed with "no input", `Operation1InputV1Message` or `Operation1InputV2Message`, instead they produce nothing as output
+- `operation2`: `"plugin1"` and `"plugin2"` are mandatory, there is no a minimum or a maximum number of additional plugins. Borrowable `operation2` must be feedable with empty events (no message) and they must produce `Opeartion2OutputMessage` messages
+- `operation3`: no mandatory plugins required, no additional plugins required (any number of connections). `operation3` has no input (therefore core doesn't interact with plugin, but is plugin to send data arbitrary). `Operation3Output` is expected to be sent to core
+
+```python
+YourCore(
+    ...,    # other attributes such as eventbus_client, identifier, ... (see next example)
+    operation_requirements={
+
+        # required operation name: "operation1"
+        "operation1": OperationRequirement(Constraint(
+            minimum=2,      # minimum number of non-mandatory plugins
+            maximum=5,      # maximum number of non-mandatory plugins
+            mandatory=["plugin1"],  # list of mandatory plugins
+            inputs=[Input.no_input(), Input.from_message(Operation1InputV1Message), Input.from_message(Operation1InputV2Message)],  # list of supported inputs for this operation
+            outputs=[Output.no_output()]    # list of supported outputs for this operation
+        )),
+
+        # required operation name: "operation2"
+        "operation2": OperationRequirement(Constraint(
+            minimum=0,
+            allowlist=["plugin1", "plugin2"],   # list of 
+            inputs=[Input.empty()],
+            outputs=[Output.from_message(Opeartion2OutputMessage)]
+        )),
+
+        # required operation name: "operation3"
+        "operation3": OperationRequirement(Constraint(
+            blocklist=["plugin2"]
+            inputs=[Input.no_input()],
+            outputs=[Output.from_message(Operation3Output)]
+        )),
+    }
+)
+```
 
 #### Sink
 
-TODO
+In order to be able to handle operation outputs, cores must be equipped with `Sink`, which are basically Busline's `EventHandler` _associated to an operation_.
+
+Operation's sinks are stored in `operation_sinks`. You can manually add them directly or using `with_operation_sink` method.
+Otherwise, we advise you to use `@sink` decorator, which you can use to decorator your methods and functions providing *operation name*, which is used to link sink automatically during handshake. For example:
+
+```python
+@dataclass
+class MyCore(Core):     # Inherit Core class to create your custom core
+
+    @sink("plugin_operation_name")  # related operation name
+    async def lowercase_sink(self, topic: str, event: Event[MyMessage]):
+        ...     # sink logic
+```
+
+#### Example
+
+You should consider plugins of [this example](#plugins-inheritance-example).
+
+```python
+@dataclass
+class SmartHomeCore(Core):
+
+    lamp_status: Dict[str, str] = field(default_factory=dict)
+
+    @sink(
+        operation_name="get_status"
+    )
+    async def get_status_sink(self, topic: str, event: Event[StatusMessage]):
+        self.lamp_status[event.payload.plugin_identifier] = event.payload.status
+```
+
+```python
+smart_home = SmartHomeCore(
+   identifier="smart_home",     # core's identifier
+   eventbus_client=...,     # Busline's client
+   operation_requirements={
+
+        # required operation name: "turn_on"
+        "turn_on": OperationRequirement(Constraint(
+            minimum=1,  # required amount of generic plugins
+            mandatory=[self.lamp_x_plugin.identifier],  # mandatory plugin (identifier)
+            inputs=[Input.empty()],     # list of supported inputs (in this case empty events)
+            outputs=[Output.no_output()]    # list of supported outputs (in this case no outputs are expected)
+        )),
+
+        # required operation name: "turn_off"
+        "turn_off": OperationRequirement(Constraint(
+            minimum=1,
+            allowlist=[self.lamp_x_plugin.identifier],  # list of pluggable plugins
+            inputs=[Input.empty()],
+            outputs=[Output.no_output()]
+        )),
+    }
+)
+```
+
+> [!TIP]
+> Check [Busline documentation](https://github.com/orbitalis-framework/py-busline) to know how to create an eventbus client.
+
 
 #### Execute an operation
 
