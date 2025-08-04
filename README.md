@@ -760,14 +760,14 @@ YourCore(
         # required operation name: "operation2"
         "operation2": OperationRequirement(Constraint(
             minimum=0,
-            allowlist=["plugin1", "plugin2"],   # list of 
+            allowlist=["plugin1", "plugin2"],   # list of allowed plugins
             inputs=[Input.empty()],
             outputs=[Output.from_message(Opeartion2OutputMessage)]
         )),
 
         # required operation name: "operation3"
         "operation3": OperationRequirement(Constraint(
-            blocklist=["plugin2"]
+            blocklist=["plugin2"]       # list of blocked plugins
             inputs=[Input.no_input()],
             outputs=[Output.from_message(Operation3Output)]
         )),
