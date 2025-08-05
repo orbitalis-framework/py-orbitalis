@@ -27,7 +27,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             send_keepalive_before_timelimit=2,
             graceful_close_timeout=1,
 
-            kwh=1      # LampPlugin-specific attribute
+            kw=1      # LampPlugin-specific attribute
         )
 
         self.assertTrue("turn_on" in self.lamp_x_plugin.operations)

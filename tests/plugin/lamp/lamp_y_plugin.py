@@ -10,6 +10,12 @@ from tests.plugin.lamp.lamp_plugin import LampPlugin, LampStatus
 
 @dataclass(frozen=True)
 class TurnOnLampYMessage(AvroMessageMixin):
+    """
+    Custom message to turn on lamp of brand Y.
+    You can provide a "power" value which will be used to
+    control brightness (and energy consumption)
+    """
+
     power: float = field(default=1)
 
     def __post_init__(self):
@@ -17,36 +23,49 @@ class TurnOnLampYMessage(AvroMessageMixin):
 
 @dataclass(frozen=True)
 class TurnOffLampYMessage(AvroMessageMixin):
+    """
+    Custom message to turn off lamp of brand Y.
+    You can reset energy-meter setting True the flag
+    """
     reset_consumption: bool = field(default=False)
 
 
 
 @dataclass(kw_only=True)
 class LampYPlugin(LampPlugin):
+    """
+    Specific plugin related to brand Y of smart lamps.
+    These lamps are able to manage brightness level
+    thanks to "power" attribute
+    """
+
     power: float = field(default=1)
 
     @override
     def turn_off(self):
+        """
+        Overridden version to turn off the lamp and compute energy consumption
+        also based on power field
+        """
+
         self.status = LampStatus.OFF
 
         if self.on_at is not None:
-            self.total_kwh += self.power * self.kwh * (datetime.now() - self.on_at).total_seconds() / 3600
+            self.total_kwh += self.power * self.kw * (datetime.now() - self.on_at).total_seconds() / 3600
 
             self.on_at = None
 
-    # === OPERATIONs ===
-
-    @operation(
+    @operation(     # add new operation with name: "turn_on"
         name="turn_on",
-        input=Input.from_schema(TurnOnLampYMessage.avro_schema())
+        input=Input.from_message(TurnOnLampYMessage)   # accepts TurnOnLampYMessage messages (checking its Avro schema)
     )
     async def turn_on_event_handler(self, topic: str, event: Event[TurnOnLampYMessage]):
         self.turn_on()
         self.power = event.payload.power
 
-    @operation(
+    @operation(     # add new operation with name: "turn_off"
         name="turn_off",
-        input=Input.from_schema(TurnOffLampYMessage.avro_schema())
+        input=Input.from_schema(TurnOffLampYMessage.avro_schema())   # accepts TurnOffLampYMessage messages
     )
     async def turn_off_event_handler(self, topic: str, event: Event[TurnOffLampYMessage]):
         self.turn_off()

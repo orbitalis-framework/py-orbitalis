@@ -22,7 +22,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             raise_exceptions=True,
             with_loop=False,
 
-            kwh=24      # LampPlugin-specific attribute
+            kw=24      # LampPlugin-specific attribute
         )
 
         self.assertTrue("turn_on" in self.lamp_x_plugin.operations)
@@ -35,7 +35,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             raise_exceptions=True,
             with_loop=False,
 
-            kwh=42
+            kw=42
         )
 
         self.assertTrue("turn_on" in self.lamp_y_plugin.operations)

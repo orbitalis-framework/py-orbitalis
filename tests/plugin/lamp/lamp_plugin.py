@@ -11,28 +11,41 @@ from orbitalis.plugin.operation import operation
 from orbitalis.plugin.plugin import Plugin
 
 
+class LampStatus(StrEnum):
+    """
+    Utility enum to define possible lamp statuses
+    """
+
+    ON = "on"
+    OFF = "off"
+
+
 @dataclass
 class StatusMessage(AvroMessageMixin):
-    plugin_identifier: str
-    status: str
-    created_at: datetime = None
+    """
+    Custom message defined to share status of lamps
+    """
+
+    lamp_identifier: str
+    status: str     # "on" or "off"
+    created_at: datetime = None # it is an Avro message, avoid default of time-variant fields
 
     def __post_init__(self):
         if self.created_at is None:
             self.created_at = datetime.now()
 
 
-class LampStatus(StrEnum):
-    ON = "on"
-    OFF = "off"
-
-
 @dataclass
 class LampPlugin(Plugin, ABC):
-    kwh: float
+    """
+    Plugin to control a smart lamp which has an energy-meter
+    """
+
+    # Custom plugin attributes
+    kw: float  # lamp energy consumption
     status: LampStatus = field(default=LampStatus.OFF)
-    on_at: Optional[datetime] = field(default=None)
-    total_kwh: float = field(default=0.0)
+    on_at: Optional[datetime] = field(default=None) # datetime of on request
+    total_kwh: float = field(default=0.0)   # total consumption history
 
     @property
     def is_on(self) -> bool:
@@ -49,10 +62,15 @@ class LampPlugin(Plugin, ABC):
             self.on_at = datetime.now()
 
     def turn_off(self):
+        """
+        Turn off this lamp and update consumption history
+        """
+
         self.status = LampStatus.OFF
 
         if self.on_at is not None:
-            self.total_kwh += self.kwh * (datetime.now() - self.on_at).total_seconds() / 3600
+            # Update total consumption:
+            self.total_kwh += self.kw * (datetime.now() - self.on_at).total_seconds() / 3600
 
             self.on_at = None
 
@@ -62,8 +80,9 @@ class LampPlugin(Plugin, ABC):
         output=Output.from_message(StatusMessage)
     )
     async def get_status_event_handler(self, topic: str, event: Event):
-        connections = self._retrieve_connections(input_topic=topic, operation_name="get_status")
+        connections = await self._retrieve_and_touch_connections(input_topic=topic, operation_name="get_status")
 
+        # Only one connection should be present on inbound topic
         assert len(connections) == 1
 
         connection = connections[0]
@@ -71,13 +90,15 @@ class LampPlugin(Plugin, ABC):
         assert connection.output_topic is not None
         assert connection.output.has_output
 
+        # Manually touch the connection
+        async with connection.lock:
+            connection.touch()
+
+        # Send output to core
         await self.eventbus_client.publish(
             connection.output_topic,
             StatusMessage(self.identifier, str(self.status))
         )
-
-        connection.touch()
-
 
     @abstractmethod
     async def turn_on_event_handler(self, topic: str, event: Event):

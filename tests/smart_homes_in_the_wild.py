@@ -81,7 +81,7 @@ def get_plugins() -> List[LampPlugin]:
                     raise_exceptions=True,
                     with_loop=bool(random.randint(0,1)),
 
-                    kwh=random.randint(1, 50)
+                    kw=random.randint(1, 50)
                 ).with_custom_policy(
                     operation_name="turn_on",
                     policy=Policy(blocklist=blocklist)
@@ -98,7 +98,7 @@ def get_plugins() -> List[LampPlugin]:
                     raise_exceptions=True,
                     with_loop=bool(random.randint(0, 1)),
 
-                    kwh=random.randint(1, 50)
+                    kw=random.randint(1, 50)
                 ).with_custom_policy(
                     operation_name="turn_on",
                     policy=Policy(blocklist=blocklist)

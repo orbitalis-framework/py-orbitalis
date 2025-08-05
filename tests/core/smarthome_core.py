@@ -16,4 +16,4 @@ class SmartHomeCore(Core):
         operation_name="get_status"
     )
     async def get_status_sink(self, topic: str, event: Event[StatusMessage]):
-        self.lamp_status[event.payload.plugin_identifier] = event.payload.status
+        self.lamp_status[event.payload.lamp_identifier] = event.payload.status

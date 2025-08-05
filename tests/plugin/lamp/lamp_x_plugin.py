@@ -7,17 +7,21 @@ from tests.plugin.lamp.lamp_plugin import LampPlugin
 
 @dataclass
 class LampXPlugin(LampPlugin):
+    """
+    Specific plugin related to brand X of smart lamps.
+    This type of lamps doesn't have additional features
+    """
 
-    @operation(
+    @operation(     # add new operation with name: "turn_on"
         name="turn_on",
-        input=Input.empty()
+        input=Input.empty()     # accepts empty events
     )
     async def turn_on_event_handler(self, topic: str, event: Event):
         self.turn_on()
 
-    @operation(
+    @operation(     # add new operation with name: "turn_off"
         name="turn_off",
-        input=Input.empty()
+        input=Input.empty()     # accepts empty events
     )
     async def turn_off_event_handler(self, topic: str, event: Event):
         self.turn_off()

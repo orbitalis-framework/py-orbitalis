@@ -511,7 +511,7 @@ class LowercaseTextProcessorPlugin(Plugin):
         lowercase_text = input_str.lower()  # process the string
 
         # Retrieve and touch related connections
-        connections = self._retrieve_and_touch_connections(
+        connections = await self._retrieve_and_touch_connections(
             input_topic=topic, 
             operation_name="lowercase"
         )
@@ -639,6 +639,230 @@ created_at: datetime = field(default_factory=lambda: datetime.now())    # AVOID 
 
 
 
+#### Plugins inheritance example
+
+In this example, we will show you how to implement a **hierarchy of plugins**.
+
+We will define `LampPlugin` abstract class plugin which provides a common operation `"get_status"`, then it will be inherited by `LampXPlugin` and `LampYPlugin` which add more operations.
+
+```python
+class LampStatus(StrEnum):
+    """
+    Utility enum to define possible lamp statuses
+    """
+
+    ON = "on"
+    OFF = "off"
+
+
+@dataclass
+class StatusMessage(AvroMessageMixin):
+    """
+    Custom message defined to share status of lamps
+    """
+
+    lamp_identifier: str
+    status: str     # "on" or "off"
+    created_at: datetime = None # it is an Avro message, avoid default of time-variant fields
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now()
+
+
+@dataclass
+class LampPlugin(Plugin, ABC):
+    """
+    Plugin to control a smart lamp which has an energy-meter
+    """
+
+    # Custom plugin attributes
+    kw: float  # lamp energy consumption
+    status: LampStatus = field(default=LampStatus.OFF)
+    on_at: Optional[datetime] = field(default=None) # datetime of on request
+    total_kwh: float = field(default=0.0)   # total consumption history
+
+    @property
+    def is_on(self) -> bool:
+        return self.status == LampStatus.ON
+
+    @property
+    def is_off(self) -> bool:
+        return self.status == LampStatus.OFF
+
+    def turn_on(self):
+        self.status = LampStatus.ON
+
+        if self.on_at is None:
+            self.on_at = datetime.now()
+
+    def turn_off(self):
+        """
+        Turn off this lamp and update consumption history
+        """
+
+        self.status = LampStatus.OFF
+
+        if self.on_at is not None:
+            # Update total consumption:
+            self.total_kwh += self.kw * (datetime.now() - self.on_at).total_seconds() / 3600
+
+            self.on_at = None
+
+    @operation(
+        name="get_status",
+        input=Input.empty(),
+        output=Output.from_message(StatusMessage)
+    )
+    async def get_status_event_handler(self, topic: str, event: Event):
+        connections = await self._retrieve_and_touch_connections(input_topic=topic, operation_name="get_status")
+
+        # Only one connection should be present on inbound topic
+        assert len(connections) == 1
+
+        connection = connections[0]
+
+        assert connection.output_topic is not None
+        assert connection.output.has_output
+
+        # Manually touch the connection
+        async with connection.lock:
+            connection.touch()
+
+        # Send output to core
+        await self.eventbus_client.publish(
+            connection.output_topic,
+            StatusMessage(self.identifier, str(self.status))
+        )
+
+    @abstractmethod
+    async def turn_on_event_handler(self, topic: str, event: Event):
+        raise NotImplemented()
+
+    @abstractmethod
+    async def turn_off_event_handler(self, topic: str, event: Event):
+        raise NotImplemented()
+```
+
+```python
+@dataclass
+class LampXPlugin(LampPlugin):
+    """
+    Specific plugin related to brand X of smart lamps.
+    This type of lamps doesn't have additional features
+    """
+
+    @operation(     # add new operation with name: "turn_on"
+        name="turn_on",
+        input=Input.empty()     # accepts empty events
+    )
+    async def turn_on_event_handler(self, topic: str, event: Event):
+        self.turn_on()
+
+    @operation(     # add new operation with name: "turn_off"
+        name="turn_off",
+        input=Input.empty()     # accepts empty events
+    )
+    async def turn_off_event_handler(self, topic: str, event: Event):
+        self.turn_off()
+```
+
+```python
+# Create new lamp X plugin
+lamp_x_plugin = LampXPlugin(
+    identifier="lamp_x_plugin",
+    eventbus_client=...,    # provide Busline client
+    raise_exceptions=True,
+    with_loop=False,
+
+    kw=24      # LampPlugin-specific attribute
+).with_custom_policy(   # override custom policy related to operation "turn_on"
+    operation_name="turn_on",
+    policy=Policy(allowlist=["smart_home"])
+)
+```
+
+```python
+@dataclass(frozen=True)
+class TurnOnLampYMessage(AvroMessageMixin):
+    """
+    Custom message to turn on lamp of brand Y.
+    You can provide a "power" value which will be used to
+    control brightness (and energy consumption)
+    """
+
+    power: float = field(default=1)
+
+    def __post_init__(self):
+        assert 0 < self.power <= 1
+
+@dataclass(frozen=True)
+class TurnOffLampYMessage(AvroMessageMixin):
+    """
+    Custom message to turn off lamp of brand Y.
+    You can reset energy-meter setting True the flag
+    """
+    reset_consumption: bool = field(default=False)
+
+
+
+@dataclass(kw_only=True)
+class LampYPlugin(LampPlugin):
+    """
+    Specific plugin related to brand Y of smart lamps.
+    These lamps are able to manage brightness level
+    thanks to "power" attribute
+    """
+
+    power: float = field(default=1)
+
+    @override
+    def turn_off(self):
+        """
+        Overridden version to turn off the lamp and compute energy consumption 
+        also based on power field
+        """
+
+        self.status = LampStatus.OFF
+
+        if self.on_at is not None:
+            self.total_kwh += self.power * self.kw * (datetime.now() - self.on_at).total_seconds() / 3600
+
+            self.on_at = None
+
+    @operation(     # add new operation with name: "turn_on"
+        name="turn_on",
+        input=Input.from_message(TurnOnLampYMessage)   # accepts TurnOnLampYMessage messages (checking its Avro schema)
+    )
+    async def turn_on_event_handler(self, topic: str, event: Event[TurnOnLampYMessage]):
+        self.turn_on()
+        self.power = event.payload.power
+
+    @operation(     # add new operation with name: "turn_off"
+        name="turn_off",
+        input=Input.from_schema(TurnOffLampYMessage.avro_schema())   # accepts TurnOffLampYMessage messages
+    )
+    async def turn_off_event_handler(self, topic: str, event: Event[TurnOffLampYMessage]):
+        self.turn_off()
+
+        if event.payload.reset_consumption:
+            self.total_kwh = 0
+```
+
+```python
+# Create a new lamp Y plugin
+lamp_y_plugin = LampYPlugin(
+    identifier="lamp_y_plugin",
+    eventbus_client=...,    # provide a Busline client
+    raise_exceptions=True,
+    with_loop=False,
+
+    kw=42
+)
+```
+
+
+
 ### Core
 
 `Core` is an [Orbiter](#orbiter) and it is the component which connects itself to [plugins](#plugin), in order to be able to **execute their operations**.
@@ -740,8 +964,8 @@ You must observe that inputs and outputs are not related, therefore all possible
 For example, if your core needs these operations:
 
 - `operation1`: `"plugin1"` is mandatory, at least 2 additional plugins, maximum 5 additional plugins. Borrowable `operation1` can be fed with "no input", `Operation1InputV1Message` or `Operation1InputV2Message`, instead they produce nothing as output
-- `operation2`: `"plugin1"` and `"plugin2"` are mandatory, there is no a minimum or a maximum number of additional plugins. Borrowable `operation2` must be feedable with empty events (no message) and they must produce `Opeartion2OutputMessage` messages
-- `operation3`: no mandatory plugins required, no additional plugins required (any number of connections). `operation3` has no input (therefore core doesn't interact with plugin, but is plugin to send data arbitrary). `Operation3Output` is expected to be sent to core
+- `operation2`: `"plugin1"` and `"plugin2"` are allowed (pluggable), there is no a minimum or a maximum number of additional plugins. Borrowable `operation2` must be feedable with empty events (no message) and they must produce `Opeartion2OutputMessage` messages
+- `operation3`: no mandatory plugins required, no additional plugins required (any number of connections), but `"plugin2"` can not be plugged (due to `blocklist`). `operation3` has no input (therefore core doesn't interact with plugin, but is plugin to send data arbitrary). `Operation3Output` is expected to be sent to core
 
 ```python
 YourCore(
@@ -779,17 +1003,65 @@ YourCore(
 
 In order to be able to handle operation outputs, cores must be equipped with `Sink`, which are basically Busline's `EventHandler` _associated to an operation_.
 
-Operation's sinks are stored in `operation_sinks`. You can manually add them directly or using `with_operation_sink` method.
-Otherwise, we advise you to use `@sink` decorator, which you can use to decorator your methods and functions providing *operation name*, which is used to link sink automatically during handshake. For example:
+Operation's sinks are stored in `operation_sinks`. You can manage them in four ways:
+
+- Manually add them directly using the attribute `operation_sinks`
+
+```python
+@dataclass
+class MyCore(Core):
+
+    # Add in post init a new sink (for operation's name "my_operation")
+    def __post_init__(self):
+        super().__post_init__()     # mandatory! Otherwise Core logic will not be executed
+
+        # Add a new sink for operation "my_operation", it is a simple in-place lambda
+        self.operation_sinks["my_operation"] = CallbackEventHandler(lambda t, e: print(t))
+```
+
+- Overriding the pre-defined sink using `override_sink` field in `OperationRequirement` during core instantiation. You must provide a Busline `EventHandler`
+
+```python
+core = MyCore(
+        eventbus_client=...,    # build a Busline's client
+        # ...other attributes
+        operation_requirements={
+            "lowercase": OperationRequirement(Constraint(
+                inputs=[Input.from_message(StringMessage)],
+                outputs=[Output.from_message(StringMessage)],
+
+            #  provide a new sink: 
+            ), override_sink=CallbackEventHandler(lambda t, e: print(t)))   
+            # in-place lambda will be used to handle new events
+        }
+    )
+```
+
+- Using `with_operation_sink` method during core instantiation to add more sinks in core instance (this has the same effect of direct management in `__post_init__`)
+
+```python
+core = MyCore(...)      # fill with core attributes
+        .with_operation_sink(
+            operation_name="my_operation",  # sink's related operation name
+            handler=CallbackEventHandler(lambda t, e: print(t))     # event handler for operation's outputs
+        )
+```
+
+- `@sink` decorator, which you can use to decorator your methods and functions providing *operation name*
 
 ```python
 @dataclass
 class MyCore(Core):     # Inherit Core class to create your custom core
 
-    @sink("plugin_operation_name")  # related operation name
-    async def lowercase_sink(self, topic: str, event: Event[MyMessage]):
+    @sink("plugin_operation_name")  # new sink with related operation name
+    async def my_operation_event_handler(self, topic: str, event: Event[MyMessage]):
         ...     # sink logic
 ```
+
+Sinks in `operation_sinks` are used to link sink automatically with related operation during handshake. Sink related to an operation in `operation_sinks` is ignored if `override_sink` in `OperationRequirement` for that operation is set.
+
+
+
 
 #### Example
 
@@ -798,14 +1070,14 @@ You should consider plugins of [this example](#plugins-inheritance-example).
 ```python
 @dataclass
 class SmartHomeCore(Core):
-
+    # Dictionary to store lamps statues
     lamp_status: Dict[str, str] = field(default_factory=dict)
 
-    @sink(
+    @sink(  # declared sink related to operation "get_status" 
         operation_name="get_status"
     )
     async def get_status_sink(self, topic: str, event: Event[StatusMessage]):
-        self.lamp_status[event.payload.plugin_identifier] = event.payload.status
+        self.lamp_status[event.payload.lamp_identifier] = event.payload.status  # store lamp status
 ```
 
 ```python
@@ -839,26 +1111,53 @@ smart_home = SmartHomeCore(
 
 #### Execute an operation
 
-TODO
+The main capability of a [Core](#core) is **execute plugins operations**. As already mentioned, there are two methods to execute operations:
+
+- `execute`
+- `sudo_execute`
+
+##### Execute
+
+`execute` is the regular method to execute an operation which uses connections to choose right plugins.
+
+To execute an operation you must provide:
+
+- `operation_name`
+- `data` (*optional*, input of operation)
+- *Modality*: one among the following parameters: `all`, `any` or `plugin_identifier` 
+
+In fact, `execute` retrieves current connections related to provided `operation_name`, *evaluating compatibility with data input type*.
+
+> [!WARNING]
+> If modality is not provided, `ValueError` is raised.
+
+Then, given the set of all potentially connections, core sends data to topics chosen based on modality:
+
+- `all` sends data to all plugins related to retrieved connections
+- `any` sends data to a random plugin related to retrieved connections
+- `plugin_identifier` sends data to specified plugin
+
+For example, suppose you want to execute `"plugin_operation"` of plugin `"plugin_identifier"`, sending an empty event (i.e., no data):
+
+```python
+await self.my_core.execute("plugin_operation", plugin_identifier="plugin_identifier")
+#                           ^^^^^^^^^^^^^^^^ operation's name
+```
 
 
+##### Sudo execute
 
+`sudo_execute` allows to bypass connections, send an execution request to a plugin.
 
+```python
+my_core.sudo_execute(
+    topic="operation_topic",    # topic on which message will be published
+    data=YourMessageData(...)   # message data which will be sent
+)
+```
 
-
-
-
-## Practical Example
-
-TODO
-
-
-
-
-
-
-
-
+> [!IMPORTANT]
+> We provide `sudo_execute` method because Orbitalis framework works in secure and managed environment, therefore we think a developer can execute arbitrary operations, even if we advice against to use `sudo_execute`. 
 
 
 
@@ -947,16 +1246,11 @@ You can manage pending requests thanks to:
 
 ### Plugin
 
-#### Manual operation management
-
-TODO
-
 
 ### Core
 
-#### Manual sink management
 
-TODO
+#### Manual requirements management
 
 
 
@@ -1644,14 +1938,13 @@ You should consider plugins of [this example](#plugins-inheritance-example).
 ```python
 @dataclass
 class SmartHomeCore(Core):
-
     lamp_status: Dict[str, str] = field(default_factory=dict)
 
     @sink(
         operation_name="get_status"
     )
     async def get_status_sink(self, topic: str, event: Event[StatusMessage]):
-        self.lamp_status[event.payload.plugin_identifier] = event.payload.status
+        self.lamp_status[event.payload.lamp_identifier] = event.payload.status
 ```
 
 ```python

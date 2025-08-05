@@ -3,6 +3,7 @@ import unittest
 from dataclasses import dataclass
 from typing import Optional
 
+from busline.client.subscriber.event_handler import CallbackEventHandler
 from busline.event.event import Event
 from busline.event.message.string_message import StringMessage
 from orbitalis.core.core import Core
@@ -39,7 +40,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
                 "lowercase": OperationRequirement(Constraint(
                     inputs=[Input.from_message(StringMessage)],
                     outputs=[Output.from_message(StringMessage)],
-                ), override_sink="my-sink", default_setup_data=bytes())
+                ), override_sink=CallbackEventHandler(lambda t, e: print(t)), default_setup_data=bytes())
             }
         )
 

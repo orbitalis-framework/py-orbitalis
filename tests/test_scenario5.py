@@ -26,7 +26,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             raise_exceptions=True,
             with_loop=False,
 
-            kwh=24      # LampPlugin-specific attribute
+            kw=24      # LampPlugin-specific attribute
         ).with_custom_policy(
             operation_name="turn_on",
             policy=Policy(maximum=2)

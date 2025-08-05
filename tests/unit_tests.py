@@ -27,7 +27,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             eventbus_client=build_new_local_client(),
             raise_exceptions=True,
 
-            kwh=24      # LampPlugin-specific attribute
+            kw=24      # LampPlugin-specific attribute
         ).with_custom_policy(
             operation_name="turn_on",
             policy=Policy.allow_only("smart_home")
@@ -42,7 +42,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
             eventbus_client=build_new_local_client(),
             raise_exceptions=True,
 
-            kwh=42
+            kw=42
         ).with_custom_policy(
             operation_name="turn_on",
             policy=Policy.no_constraints()      # it is also default
