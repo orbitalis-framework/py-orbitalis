@@ -347,6 +347,7 @@ orbiter1.send_graceless_close_connection(
 ```
 
 In **Graceful** the orbiter sends a `GracefulCloseConnectionMessage` to remote one. Remote orbiter is able to perform some operations before connection is actually closed. Remote orbiter must send a `CloseConnectionAckMessage`, after that connection is closed. If `graceful_close_timeout` is not `None` is used to send graceless close connection if ACK is not sent. 
+You can force timeout check using `force_close_connection_for_out_to_timeout_pending_graceful_close_connection` method.
 
 ```mermaid
 sequenceDiagram
@@ -1170,39 +1171,22 @@ In this section we have inserted more details about library implementation which
 We suppose that [User Guide](#user-guide) was read before this, because in this section we only add more details. 
 
 
-### Orbiter
-
-TODO
-
-#### Loop
-
-Loop is managed in `__loop` (private) method. The method is private because the entire logic is fully managed and hooks are provided.
-
-Basically, loop is controlled by two `asyncio.Event`:
-
-- `__stop_loop_controller`: used in `while` condition, if it is set, loop is stopped
-- `__pause_loop_controller`: if it is set, loop iteration are skipped
-
-As already mentioned in [User Guide](#user-guide), `set` and `clear` method of `asyncio.Event` are wrapped in `stop_loop`, `pause_loop`, `resume_loop` methods.
-
-
-#### Custom loop
-
-TODO: how to create a custom loop
-
-
-
 ### Communication protocols more in deep
 
-TODO
-
 #### Handshake
+
+Handshake is the most complex protocol in Orbitalis, it has a lot of possible branches.
+The entire process is automatically managed by Orbitalis framework, in fact event handlers are *private* methods, you should use provided hooks (listed in [User Guide](#user-guide)) to change handshake behavior.
+
+Following the enriched handshake sequence diagram: 
 
 ```mermaid
 sequenceDiagram
     Core->>Plugin: Discover
+    Plugin->>Plugin: Update acquaintances
     Plugin->>Plugin: New pending requests
     Plugin->>Core: Offer
+    Core->>Core: Update acquaintances
     par for each offered operation
         alt is still needed
             Core->>Core: New pending request
@@ -1225,10 +1209,46 @@ sequenceDiagram
     end
 ```
 
-TODO
+In the following chapters we will discuss more in deep all steps.
+
+##### Discover
+
+**Discover** message is the first message of the protocol which is sent by [cores](#core). It has two main goals:
+
+- **Notify it existence to all plugins**, providing information such as `core_identifier`, `offer_topic`, `core_keepalive_topic` (topic which plugins must use to send keepalive to core), `core_keepalive_request_topic` (topic which plugins must use to send a keepalive request), `considered_dead_after` (time after which plugins are considered dead if keepalive is not sent)
+- **Retrieve operations** thanks to `queries` field, which is a dictionary `operation_name => DiscoverQuery`
+
+`DiscoverQuery` is a dataclass used to store information about operation requirements. Basically it provides constraint information and operation's name.
+
+As already mentioned in [User Guide](#user-guide), you must ensure that `discover_topic` field is equal for all your orbiters, otherwise discover messages will be lost.  
+
+There are more than one methods to send a discover message, but all wrap `send_discover_for_operations` call. In this method:
+
+1. Discover message is published
+2. `_last_discover_sent_at` is updated
+
+> [!NOTE]
+> Offer topic is fixed and pre-defined by `offer_topic` property, in order to allow a single subscription and future offers. 
+
+##### Offer
+
+When a [plugin](#plugin) receives a discover, it will be processed. In particular, based on plugin's [policy](#policy), if there are some available slots, they are proposed to core.
+
+First of all, when a new discover event arrives, plugin updates its acquaintances, i.e. updates knowledge about keepalive request topics, keepalive topics and dead time (thanks to `update_acquaintances` method).
+
+Offer logic is mainly present in the discover event handler and in the `send_offer` method.
+
+Actually, `send_offer` can be called in any moment, this allows plugins (and you) to modify a little bit the handshake logic. For example, plugins can send offer messages in a second moment. This feature will be add in a next version.
+
+Similarly to [discover](#discover), even offer messages are used to share information about plugins with cores. In fact, plugins also share `plugin_identifier`, `reply_topic`, `plugin_keepalive_topic` (topic which cores must use to send keepalive to core), `plugin_keepalive_request_topic` (topic which cores must use to send a keepalive request), `considered_dead_after` (time after which cores are considered dead if keepalive is not sent).
+
+In addiction `offered_operations` list is provided. To reduce information sharing, only essential information about plugin's operations are sent, i.e. name, input and output (used to check compatibility).
+In fact, remember that cores firstly search operations by name and then check input/output compatibility.
+
+You must know that when a plugin offers a slot, a new [pending request](#pending-requests) is created, in order to preserve that slot for a period of time and wait core response events.
 
 
-##### Pending Requests
+###### Pending Requests
 
 `PendingRequest` contains information about its future [connection](#connections). It is built during [handshake](#handshake) process, so generally you should not use this class.
 Anyway, it has `into_connection` method to build a `Connection` and, similarly to connections, has a `lock` attribute to synchronize elaborations.
@@ -1242,6 +1262,64 @@ You can manage pending requests thanks to:
 - `_is_pending` to know if there is a pending request related to a remote identifier and an operation name
 - `_promote_pending_request_to_connection`: (_does not lock automatically the pending request_) transforms a pending request into a connection
 - `discard_expired_pending_requests` based on `pending_requests_expire_after` and `created_at`
+
+
+##### Request
+
+When an offer event arrives, similarly to plugins, it update its acquaintances. Then, it evaluates the offer and for each offered operation a core can:
+
+- **Request** the operation (actually)
+- **Reject** the operation if not need anymore (e.g., another plugin offers the same operation before)
+
+> [!NOTE]
+> Core responses for each operation instead of using a batch to reduce dimension of messages and allow it to request operations even after some time.
+
+If offered operation is rejected, a simple message `RejectOperationMessage` is sent, in which core's identifier and operation's name are specified.
+
+Instead, if offered operation is still required, then a `RequestOperationMessage` is sent. In that message more details about future connection are provided:
+
+- `output_topic`: topic on which outputs of the operation must be sent (only present if output is acquirable by core)
+- `core_side_close_operation_connection_topic`: topic which will be used to send close connection messages
+- `setup_data` (in `bytes`): data which will be used to setup the connection
+
+
+##### Response
+
+TODO
+
+
+
+#### Keepalive
+
+TODO
+
+
+### Orbiter
+
+#### Close unused connections
+
+`close_unused_connections` is the Orbiter method which is used to close connections which are untouched during last `close_connection_if_unused_after` (attribute of `Orbiter`) and return the number of sent close request.
+
+This method is called periodically in the Orbiter's main [loop](#loop). As already mentioned, if a connection is unused, then [graceful close procedure](#close-connections) is started.
+
+To prevent this behavior, you can set `close_connection_if_unused_after=None` during orbiter instantiation. In this case, `0` is always returned.
+
+#### Loop
+
+Loop is managed in `__loop` (private) method. The method is private because the entire logic is fully managed and hooks are provided.
+
+Basically, loop is controlled by two `asyncio.Event`:
+
+- `__stop_loop_controller`: used in `while` condition, if it is set, loop is stopped
+- `__pause_loop_controller`: if it is set, loop iteration are skipped
+
+As already mentioned in [User Guide](#user-guide), `set` and `clear` method of `asyncio.Event` are wrapped in `stop_loop`, `pause_loop`, `resume_loop` methods.
+
+
+#### Custom loop
+
+TODO: how to create a custom loop
+
 
 
 ### Plugin
@@ -1267,6 +1345,7 @@ In order to coordinate the work, please open an issue or a pull request.
 
 **Thank you** for your contributions!
 
+Author, designer and creator: Nicola Ricciardi
 
 
 

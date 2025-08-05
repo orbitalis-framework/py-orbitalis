@@ -63,12 +63,14 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         await self.eventbus_client.subscribe(
                 topic=self.response_topic,
-                handler=self._response_event_handler
+                handler=self.__response_event_handler
             )
 
+        # Offer subscription MUST be the second,
+        # in order to have response event handler when offers will be able to be managed
         await self.eventbus_client.subscribe(
                 topic=self.offer_topic,
-                handler=self._offer_event_handler
+                handler=self.__offer_event_handler
             )
 
         self.update_compliant()
@@ -209,11 +211,6 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         if len(operation_requirements) == 0:
             return
 
-        await self.eventbus_client.subscribe(
-            topic=self.offer_topic,
-            handler=self._offer_event_handler
-        )
-
         discover_message = DiscoverMessage(
             core_identifier=self.identifier,
             queries=dict([(operation_name, DiscoverQuery.from_constraint(operation_name, constraint)) for operation_name, constraint in operation_requirements.items()]),
@@ -330,7 +327,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         """
 
     @event_handler
-    async def _offer_event_handler(self, topic: str, event: Event[OfferMessage]):
+    async def __offer_event_handler(self, topic: str, event: Event[OfferMessage]):
         logging.info(f"{self}: new offer: {topic} -> {event}")
 
         await self._on_new_offer(event.payload)
@@ -375,7 +372,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         Hook called when a confirm connection arrives
         """
 
-    async def _confirm_connection_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage]):
+    async def __confirm_connection_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage]):
         await self._on_confirm_connection(event.payload)
 
         plugin_identifier = event.payload.plugin_identifier
@@ -399,7 +396,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
                 await self.eventbus_client.subscribe(
                     pending_request.incoming_close_connection_topic,
-                    self._close_connection_event_handler
+                    self.__close_connection_event_handler
                 )
 
                 topics_to_unsubscribe_if_error.append(pending_request.incoming_close_connection_topic)
@@ -454,7 +451,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         Hook called when operation no longer available message arrives
         """
 
-    async def _operation_no_longer_available_event_handler(self, topic: str, event: Event[OperationNoLongerAvailableMessage]):
+    async def __operation_no_longer_available_event_handler(self, topic: str, event: Event[OperationNoLongerAvailableMessage]):
         await self._on_operation_no_longer_available(event.payload)
 
         self.have_seen(event.payload.plugin_identifier)
@@ -474,17 +471,17 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         """
 
     @event_handler
-    async def _response_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage | OperationNoLongerAvailableMessage]):
+    async def __response_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage | OperationNoLongerAvailableMessage]):
 
         logging.info(f"{self}: new response: {topic} -> {event}")
 
         await self._on_response()
 
         if isinstance(event.payload, ConfirmConnectionMessage):
-            await self._confirm_connection_event_handler(topic, event)
+            await self.__confirm_connection_event_handler(topic, event)
 
         elif isinstance(event.payload, OperationNoLongerAvailableMessage):
-            await self._operation_no_longer_available_event_handler(topic, event)
+            await self.__operation_no_longer_available_event_handler(topic, event)
 
         else:
             raise ValueError("Unexpected reply message")

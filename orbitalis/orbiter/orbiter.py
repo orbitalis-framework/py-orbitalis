@@ -144,11 +144,11 @@ class Orbiter(ABC):
         await asyncio.gather(
             self.eventbus_client.subscribe(
                 self.keepalive_request_topic,
-                self._keepalive_request_event_handler
+                self.__keepalive_request_event_handler
             ),
             self.eventbus_client.subscribe(
                 self.keepalive_topic,
-                self._keepalive_event_handler
+                self.__keepalive_event_handler
             )
         )
 
@@ -483,7 +483,7 @@ class Orbiter(ABC):
         """
 
     @event_handler
-    async def _keepalive_request_event_handler(self, topic: str, event: Event[KeepaliveRequestMessage]):
+    async def __keepalive_request_event_handler(self, topic: str, event: Event[KeepaliveRequestMessage]):
         try:
             await self._on_keepalive_request(event.payload.from_identifier)
 
@@ -503,7 +503,7 @@ class Orbiter(ABC):
         """
 
     @event_handler
-    async def _keepalive_event_handler(self, topic: str, event: Event[KeepaliveMessage]):
+    async def __keepalive_event_handler(self, topic: str, event: Event[KeepaliveMessage]):
         await self._on_keepalive(event.payload.from_identifier)
 
         self._last_seen[event.payload.from_identifier] = datetime.now()
@@ -687,7 +687,7 @@ class Orbiter(ABC):
 
             ack_topic = self._build_ack_close_topic(remote_identifier, operation_name)
 
-            await self.eventbus_client.subscribe(ack_topic, self._close_connection_ack_event_handler)
+            await self.eventbus_client.subscribe(ack_topic, self.__close_connection_ack_event_handler)
 
             assert close_connection_to_remote_topic is not None
 
@@ -733,7 +733,7 @@ class Orbiter(ABC):
         )
 
     @event_handler
-    async def _close_connection_ack_event_handler(self, topic: str, event: Event[CloseConnectionAckMessage]):
+    async def __close_connection_ack_event_handler(self, topic: str, event: Event[CloseConnectionAckMessage]):
 
         self.have_seen(event.payload.from_identifier)
 
@@ -746,7 +746,7 @@ class Orbiter(ABC):
         )
 
     @event_handler
-    async def _close_connection_event_handler(self, topic: str, event: Event[GracefulCloseConnectionMessage | GracelessCloneConnectionMessage]):
+    async def __close_connection_event_handler(self, topic: str, event: Event[GracefulCloseConnectionMessage | GracelessCloneConnectionMessage]):
         try:
             if isinstance(event.payload, GracefulCloseConnectionMessage):
                 await self._graceful_close_connection(topic, event.payload)

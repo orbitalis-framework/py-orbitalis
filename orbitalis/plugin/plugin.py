@@ -44,12 +44,12 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
         await self.eventbus_client.subscribe(
             self.reply_topic,
-            self._reply_event_handler
+            self.__reply_event_handler
         )
 
         await self.eventbus_client.subscribe(
             self.discover_topic,
-            self._discover_event_handler
+            self.__discover_event_handler
         )
 
         self.state = PluginState.RUNNING
@@ -135,7 +135,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         """
 
     @event_handler
-    async def _discover_event_handler(self, topic: str, event: Event[DiscoverMessage]):
+    async def __discover_event_handler(self, topic: str, event: Event[DiscoverMessage]):
         logging.info(f"{self}: new discover event from {event.payload.core_identifier}: {topic} -> {event}")
 
         await self._on_new_discover(event.payload)
@@ -237,7 +237,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         Hook called when a reject message arrives
         """
 
-    async def _reject_event_handler(self, topic: str, event: Event[RejectOperationMessage]):
+    async def __reject_event_handler(self, topic: str, event: Event[RejectOperationMessage]):
         logging.debug(f"{self}: core {event.payload.core_identifier} rejects plug request for this operation: {event.payload.operation_name}")
 
         await self._on_reject(event.payload)
@@ -279,7 +279,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
             await self.eventbus_client.subscribe(
                 plugin_side_close_operation_connection_topic,
-                self._close_connection_event_handler
+                self.__close_connection_event_handler
             )
             topics_to_unsubscribe_if_error.append(plugin_side_close_operation_connection_topic)
 
@@ -314,7 +314,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         Hook called when a new request message arrives
         """
 
-    async def _request_operation_event_handler(self, topic: str, event: Event[RequestOperationMessage]):
+    async def __request_operation_event_handler(self, topic: str, event: Event[RequestOperationMessage]):
 
         await self._on_request(event.payload)
 
@@ -379,16 +379,16 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         """
 
     @event_handler
-    async def _reply_event_handler(self, topic: str, event: Event[RequestOperationMessage | RejectOperationMessage]):
+    async def __reply_event_handler(self, topic: str, event: Event[RequestOperationMessage | RejectOperationMessage]):
         logging.info(f"{self}: new reply: {topic} -> {event}")
 
         await self._on_reply()
 
         if isinstance(event.payload, RequestOperationMessage):
-            await self._request_operation_event_handler(topic, event)
+            await self.__request_operation_event_handler(topic, event)
 
         elif isinstance(event.payload, RejectOperationMessage):
-            await self._reject_event_handler(topic, event)
+            await self.__reject_event_handler(topic, event)
 
         else:
             raise ValueError("Unexpected reply message")
