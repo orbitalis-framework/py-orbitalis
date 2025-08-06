@@ -694,12 +694,14 @@ In other words, we must always specify an `Input`/`Output` even if it is "no inp
 We can easily generate a "no input/output" thanks to: 
 
 ```python
-input = Input.no_input()
+input = Input.no_input()    # create new "no input" 
 
+# `has_input` property is used to check if input is expected
 assert not input.has_input
 
-output = Output.no_output()
+output = Output.no_output()    # create new "no output" 
 
+# `has_output` property is used to check if output is expected
 assert not output.has_output
 ```
 
