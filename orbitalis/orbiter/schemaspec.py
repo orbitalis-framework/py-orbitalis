@@ -2,6 +2,8 @@ import json
 from dataclasses import dataclass, field
 from typing import List, Type, Self, override
 
+from busline.event.message.number_message import Int64Message, Int32Message, Float64Message, Float32Message
+from busline.event.message.string_message import StringMessage
 from dataclasses_avroschema import AvroModel
 
 from busline.event.message.avro_message import AvroMessageMixin
@@ -42,6 +44,26 @@ class SchemaSpec(AvroModel):
     def from_message(cls, payload: Type[AvroMessageMixin]) -> Self:
         return cls.from_schema(payload.avro_schema())
 
+    @classmethod
+    def int64(cls) -> Self:
+        return cls.from_message(Int64Message)
+
+    @classmethod
+    def int32(cls) -> Self:
+        return cls.from_message(Int32Message)
+
+    @classmethod
+    def float64(cls) -> Self:
+        return cls.from_message(Float64Message)
+
+    @classmethod
+    def float32(cls) -> Self:
+        return cls.from_message(Float32Message)
+
+    @classmethod
+    def string(cls) -> Self:
+        return cls.from_message(StringMessage)
+
 
     def is_compatible(self, other: Self) -> bool:
         if self.support_undefined_schema != other.support_undefined_schema:
@@ -66,8 +88,8 @@ class SchemaSpec(AvroModel):
 
         return True
 
-    def is_compatible_with_schema(self, target_schema: str, undefined_is_compatible: bool = False) -> bool:
-        if undefined_is_compatible and self.support_undefined_schema:
+    def is_compatible_with_schema(self, target_schema: str) -> bool:
+        if self.support_undefined_schema:
             return True
 
         for my_schema in self.schemas:
