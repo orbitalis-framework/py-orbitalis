@@ -6,6 +6,26 @@ At its core, Orbitalis provides a lightweight yet powerful foundation for buildi
 
 If you don't want to read the user guide, you can skip to [Practical Example](#practical-example).
 
+```mermaid
+flowchart LR
+      C1 --- EB1
+      C1 --- EB2
+
+      EB1 --- P3
+      EB1 --- P1
+      
+      EB2 --- P2
+      EB2 --- P4
+
+      C1@{ shape: circle, label: "Core" }
+      P1@{ shape: stadium, label: "Plugin" }
+      P2@{ shape: stadium, label: "Plugin" }
+      P3@{ shape: stadium, label: "Plugin" }
+      P4@{ shape: stadium, label: "Plugin" }
+
+      EB1@{ shape: das, label: "MQTT Broker" }
+      EB2@{ shape: das, label: "Local EventBus" }
+```
 
 ## User Guide
 
