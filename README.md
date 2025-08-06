@@ -318,15 +318,19 @@ Fortunately, there is an useful method called `_retrieve_and_touch_connections` 
 @dataclass
 class MyPlugin(Plugin):
     @operation(
-        name="my_operation",
-        input=Input.from_message(Int64Message),
-        output=Output.no_output()
+        name="my_operation",    # operation's name, i.e. "my_operation"
+        input=Input.from_message(Int64Message), # operation's input, i.e. an integer number 
+        output=Output.no_output()   # operation's output, i.e. no output are produced
     )
     async def its_event_handler(self, topic: str, event: Event[...]):
-        await self._retrieve_and_touch_connections(
+
+        # Retrieves connections related to this operation and touches them
+        connections = await self._retrieve_and_touch_connections(
             input_topic=topic, 
             operation_name="my_operation"
         )
+
+        # ...operation's logic
 ```
 
 Orbiter connections are stored in `_connections` attribute.
@@ -360,6 +364,8 @@ sequenceDiagram
 ```
 
 ```python
+# `orbiter1` close connection immediately 
+# with "my_orbiter2" related to operation "my_operation"
 orbiter1.send_graceless_close_connection(
     remote_identifier="my_orbiter2",
     operation_name="my_operation"
@@ -381,6 +387,8 @@ sequenceDiagram
 ```
 
 ```python
+# `orbiter1` close connection gracefully 
+# with "my_orbiter2" related to operation "my_operation"
 orbiter1.send_graceful_close_connection(
     remote_identifier="my_orbiter2",
     operation_name="my_operation"
@@ -615,7 +623,7 @@ class RandomNumberPlugin(Plugin):
                     asyncio.create_task(
                         self.eventbus_client.publish(   # send random int
                             connection.output_topic,
-                            random_number
+                            random_number       # message (output)
                         )
                     )
                 )
@@ -754,7 +762,7 @@ class StatusMessage(AvroMessageMixin):
 
     def __post_init__(self):
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now()    # default created_at value
 
 
 @dataclass
@@ -932,6 +940,7 @@ class LampYPlugin(LampPlugin):
     async def turn_off_event_handler(self, topic: str, event: Event[TurnOffLampYMessage]):
         self.turn_off()
 
+        # Reset energy-meter based on operation input
         if event.payload.reset_consumption:
             self.total_kwh = 0
 ```
@@ -944,7 +953,7 @@ lamp_y_plugin = LampYPlugin(
     raise_exceptions=True,
     with_loop=False,
 
-    kw=42
+    kw=42   # custom field
 )
 ```
 
@@ -1538,6 +1547,7 @@ self.operations["hello"].policy.allowlist = ["your_core_identifier"]
 - **Remove an operation**:
 
 ```python
+# Remove entry from dictionary
 del self.operations["hello"]
 ```
 
