@@ -4,7 +4,7 @@ from typing import Dict
 from busline.event.event import Event
 from orbitalis.core.core import Core
 from orbitalis.core.sink import sink
-from tests.plugin.lamp.lamp_plugin import StatusMessage
+from tests.lamp.plugin.lamp_plugin import StatusMessage
 
 
 @dataclass

@@ -6,12 +6,12 @@ from busline.event.message.avro_message import AvroMessageMixin
 from busline.event.event import Event
 from orbitalis.orbiter.schemaspec import Input
 from orbitalis.plugin.operation import operation
-from tests.plugin.lamp.lamp_plugin import LampPlugin, LampStatus
+from tests.lamp.plugin.lamp_plugin import LampPlugin, LampStatus
 
 @dataclass(frozen=True)
 class TurnOnLampYMessage(AvroMessageMixin):
     """
-    Custom message to turn on lamp of brand Y.
+    Custom message to turn on plugin of brand Y.
     You can provide a "power" value which will be used to
     control brightness (and energy consumption)
     """
@@ -24,7 +24,7 @@ class TurnOnLampYMessage(AvroMessageMixin):
 @dataclass(frozen=True)
 class TurnOffLampYMessage(AvroMessageMixin):
     """
-    Custom message to turn off lamp of brand Y.
+    Custom message to turn off plugin of brand Y.
     You can reset energy-meter setting True the flag
     """
     reset_consumption: bool = field(default=False)
@@ -44,7 +44,7 @@ class LampYPlugin(LampPlugin):
     @override
     def turn_off(self):
         """
-        Overridden version to turn off the lamp and compute energy consumption
+        Overridden version to turn off the plugin and compute energy consumption
         also based on power field
         """
 

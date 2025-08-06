@@ -53,7 +53,7 @@ class Orbiter(ABC):
 
     with_loop: bool = field(default=True)
 
-    _others_considers_me_dead_after: Dict[str, float] = field(default_factory=dict, init=False)
+    _others_considers_me_dead_after: Dict[str, float] = field(default_factory=dict, init=False)     # remote_identifier => time
     _remote_keepalive_request_topics: Dict[str, str] = field(default_factory=dict, init=False)   # remote_identifier => keepalive_request_topic
     _remote_keepalive_topics: Dict[str, str] = field(default_factory=dict, init=False)   # remote_identifier => keepalive_topic
     _last_seen: Dict[str, datetime] = field(default_factory=dict, init=False)   # remote_identifier => datetime
@@ -297,7 +297,7 @@ class Orbiter(ABC):
 
         return connections[0]
 
-    async def _retrieve_and_touch_connections(self, operation_name: str, input_topic: str) -> List[Connection]:
+    async def _retrieve_and_touch_connections(self, operation_name: str, *, input_topic: Optional[str] = None) -> List[Connection]:
         """
         Retrieve connections based on operation's name and input topic, then *lock* and touch connections.
         Finally, connections are returned.
@@ -746,7 +746,7 @@ class Orbiter(ABC):
         )
 
     @event_handler
-    async def __close_connection_event_handler(self, topic: str, event: Event[GracefulCloseConnectionMessage | GracelessCloneConnectionMessage]):
+    async def _close_connection_event_handler(self, topic: str, event: Event[GracefulCloseConnectionMessage | GracelessCloneConnectionMessage]):
         try:
             if isinstance(event.payload, GracefulCloseConnectionMessage):
                 await self._graceful_close_connection(topic, event.payload)

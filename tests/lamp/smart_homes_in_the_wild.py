@@ -6,10 +6,10 @@ from busline.local.eventbus.local_eventbus import LocalEventBus
 from orbitalis.core.requirement import OperationRequirement, Constraint
 from orbitalis.orbiter.schemaspec import Input, Output
 from orbitalis.plugin.operation import Policy
-from tests.core.smarthome_core import SmartHomeCore
-from tests.plugin.lamp.lamp_plugin import LampPlugin, StatusMessage
-from tests.plugin.lamp.lamp_x_plugin import LampXPlugin
-from tests.plugin.lamp.lamp_y_plugin import TurnOnLampYMessage, TurnOffLampYMessage, LampYPlugin
+from tests.lamp.smarthome_core import SmartHomeCore
+from tests.lamp.plugin import LampPlugin, StatusMessage
+from tests.lamp.plugin import LampXPlugin
+from tests.lamp.plugin import TurnOnLampYMessage, TurnOffLampYMessage, LampYPlugin
 from tests.utils import build_new_local_client
 
 random.seed(42)

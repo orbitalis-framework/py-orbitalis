@@ -159,11 +159,11 @@ Every orbiter has an internal **loop** which performs periodically operations. A
 Loop is stopped when `stop` method is called, but you can stop it prematurely using `stop_loop` method. 
 If you want to pause loop, you can use `pause_loop` and `resume_loop`.
 
-Additionally to hooks, the following operations (already discussed) are executed in parallel:
+Additionally to hooks, the following operations (*already discussed above*) are executed in parallel:
 
 - `_on_loop_iteration`
 - `close_unused_connections`
-- `discard_expired_pending_requests`
+- `discard_expired_pending_requests`: 
 - `force_close_connection_for_out_to_timeout_pending_graceful_close_connection`
 - `send_keepalive_based_on_connections_and_threshold`
 
@@ -205,14 +205,14 @@ When an [Pending Request](#pending-requests) is *confirmed*, then a [Connection]
 sequenceDiagram
     Core->>Plugin: Discover
     Plugin->>Core: Offer
-    par for each offered operation
+    par Reply for each offered operation
         alt is still needed
             Core->>Plugin: Request
         else not needed anymore
             Core->>Plugin: Reject
         end
     end
-    par for each requested operation
+    par Response for each requested operation
         alt is still available
             Plugin->>Core: Confirm
         else operation no longer available
@@ -412,11 +412,11 @@ You can know which are dead remote orbiters thanks to `dead_remote_identifiers` 
 
 Main related fields:
 
-- `_others_considers_me_dead_after`
-- `_remote_keepalive_request_topics`
-- `_remote_keepalive_topics`
-- `_last_seen`
-- `_last_keepalive_sent`
+- `_others_considers_me_dead_after`: dictionary which contains `remote_identifier => time`, used to know when a keepalive message must be sent
+- `_remote_keepalive_request_topics`: dictionary which contains `remote_identifier => keepalive_request_topic`, used to send keepalive requests to remote orbiters
+- `_remote_keepalive_topics`: dictionary which contains `remote_identifier => keepalive_topic`, used to send keepalive to remote orbiters
+- `_last_seen`: dictionary which contains `remote_identifier => last_seen`, used to know if a remote orbiter must be considered *dead*
+- `_last_keepalive_sent`: dictionary which contains `remote_identifier => last_keepalive_sent`, used to know if a keepalive message must be sent
 
 Hooks:
 
@@ -483,7 +483,10 @@ Every operation has the following attributes:
 
 Even if output can be specified, if a `Core` doesn't need it, it should not sent. Obviously, you decide which messages must be sent in which topics, so you must ensure the compliance.
 
-You can **add or modify manually operations** to a plugin thanks to `operations` attribute, otherwise you can use `@operation` **decorator**. 
+You can **add or modify manually operations** to a plugin thanks to `operations` attribute, otherwise you can use `@operation` **decorator**.
+
+> [!IMPORTANT]
+> Obviously, if the operation's input is `Input.no_input()` you **must** add manually the operation, because there isn't an event handler. You can see an example of it in [periodic operation](#periodic-operations) section.
 
 `@operation` if you don't provide an `input` or an `output`, they are considered "no input/output" (see [input/output](#input--output)). 
 If you don't specify `default_policy`, `Policy.no_constraints()` is assigned.
@@ -539,6 +542,69 @@ class LowercaseTextProcessorPlugin(Plugin):
 > [!NOTE]
 > Method name is not related to operation's name.
 
+
+##### Periodic operations
+
+If you want to elaborate something periodically, you can use provided orbiter's loop. This allows you to avoid [custom loop](#custom-loop), even if you can create them.
+
+We advice to use an auxiliary field which contains last elaboration datetime.
+
+For example, we suppose to have a [plugin](#plugin) which has an operation `randint` which periodically send a random number to connected cores.
+
+```python
+@dataclass
+class RandomNumberPlugin(Plugin):
+    """
+    This plugin has only one operation which sends periodically a random number
+    """
+
+    last_sent: Optional[datetime] = field(default=None)     # will be used to check if a new value must be sent
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # Manually define "randint" operation
+        self.operations["randint"] = Operation(
+            name="randint",     # operation's name
+            input=Input.no_input(),     # no inputs are expected
+            handler=None,               # handler is not needed, given that no inputs must be processed
+            output=Output.from_message(Int64Message),   # integers will be sent to cores
+            policy=Policy.no_constraints()          # no constraint during handshake
+        )
+
+    @override
+    async def _on_loop_iteration(self):     # we use loop iteration hook to provide periodic operations
+
+        now = datetime.now()
+
+        # Only if the enough time is elapsed the operation will be executed
+        if self.last_sent is None or (now - self.last_sent).seconds > 2:    # send a new random int every 2 seconds
+            self.last_sent = now    # update timer for next iteration
+            await self.__send_randint()
+
+
+    async def __send_randint(self):
+        random_number = random.randint(0, 100)      # generate a new random number, it will be sent
+
+        connections = await self._retrieve_and_touch_connections(operation_name="randint")  # retrieve current core connections
+
+        tasks = []
+        for connection in connections:
+            if connection.has_output:   # check if output is expected (it should be...)
+                tasks.append(
+                    asyncio.create_task(
+                        self.eventbus_client.publish(   # send random int
+                            connection.output_topic,
+                            random_number
+                        )
+                    )
+                )
+
+        await asyncio.gather(*tasks)
+```
+
+> [!IMPORTANT]
+> Remember to enable loop (*avoid* `with_loop=False`) during plugin instantiation.
 
 ##### Policy
 
@@ -649,7 +715,7 @@ We will define `LampPlugin` abstract class plugin which provides a common operat
 ```python
 class LampStatus(StrEnum):
     """
-    Utility enum to define possible lamp statuses
+    Utility enum to define possible plugin statuses
     """
 
     ON = "on"
@@ -674,11 +740,11 @@ class StatusMessage(AvroMessageMixin):
 @dataclass
 class LampPlugin(Plugin, ABC):
     """
-    Plugin to control a smart lamp which has an energy-meter
+    Plugin to control a smart plugin which has an energy-meter
     """
 
     # Custom plugin attributes
-    kw: float  # lamp energy consumption
+    kw: float  # plugin energy consumption
     status: LampStatus = field(default=LampStatus.OFF)
     on_at: Optional[datetime] = field(default=None) # datetime of on request
     total_kwh: float = field(default=0.0)   # total consumption history
@@ -699,7 +765,7 @@ class LampPlugin(Plugin, ABC):
 
     def turn_off(self):
         """
-        Turn off this lamp and update consumption history
+        Turn off this plugin and update consumption history
         """
 
         self.status = LampStatus.OFF
@@ -769,7 +835,7 @@ class LampXPlugin(LampPlugin):
 ```
 
 ```python
-# Create new lamp X plugin
+# Create new plugin X plugin
 lamp_x_plugin = LampXPlugin(
     identifier="lamp_x_plugin",
     eventbus_client=...,    # provide Busline client
@@ -787,7 +853,7 @@ lamp_x_plugin = LampXPlugin(
 @dataclass(frozen=True)
 class TurnOnLampYMessage(AvroMessageMixin):
     """
-    Custom message to turn on lamp of brand Y.
+    Custom message to turn on plugin of brand Y.
     You can provide a "power" value which will be used to
     control brightness (and energy consumption)
     """
@@ -800,7 +866,7 @@ class TurnOnLampYMessage(AvroMessageMixin):
 @dataclass(frozen=True)
 class TurnOffLampYMessage(AvroMessageMixin):
     """
-    Custom message to turn off lamp of brand Y.
+    Custom message to turn off plugin of brand Y.
     You can reset energy-meter setting True the flag
     """
     reset_consumption: bool = field(default=False)
@@ -820,7 +886,7 @@ class LampYPlugin(LampPlugin):
     @override
     def turn_off(self):
         """
-        Overridden version to turn off the lamp and compute energy consumption 
+        Overridden version to turn off the plugin and compute energy consumption 
         also based on power field
         """
 
@@ -851,7 +917,7 @@ class LampYPlugin(LampPlugin):
 ```
 
 ```python
-# Create a new lamp Y plugin
+# Create a new plugin Y plugin
 lamp_y_plugin = LampYPlugin(
     identifier="lamp_y_plugin",
     eventbus_client=...,    # provide a Busline client
@@ -1078,7 +1144,7 @@ class SmartHomeCore(Core):
         operation_name="get_status"
     )
     async def get_status_sink(self, topic: str, event: Event[StatusMessage]):
-        self.lamp_status[event.payload.lamp_identifier] = event.payload.status  # store lamp status
+        self.lamp_status[event.payload.lamp_identifier] = event.payload.status  # store plugin status
 ```
 
 ```python
@@ -1187,7 +1253,7 @@ sequenceDiagram
     Plugin->>Plugin: New pending requests
     Plugin->>Core: Offer
     Core->>Core: Update acquaintances
-    par for each offered operation
+    par Reply for each offered operation
         alt is still needed
             Core->>Core: New pending request
             Core->>Plugin: Request
@@ -1196,7 +1262,7 @@ sequenceDiagram
             Plugin->>Plugin: Remove pending request
         end
     end
-    par for each requested operation
+    par Response for each requested operation
         alt is still available
             Plugin->>Plugin: Promote pending request to connection
             Plugin->>Core: Confirm
@@ -1213,7 +1279,7 @@ In the following chapters we will discuss more in deep all steps.
 
 ##### Discover
 
-**Discover** message is the first message of the protocol which is sent by [cores](#core). It has two main goals:
+*Discover* message is the first message of the protocol which is sent by [cores](#core). It has two main goals:
 
 - **Notify it existence to all plugins**, providing information such as `core_identifier`, `offer_topic`, `core_keepalive_topic` (topic which plugins must use to send keepalive to core), `core_keepalive_request_topic` (topic which plugins must use to send a keepalive request), `considered_dead_after` (time after which plugins are considered dead if keepalive is not sent)
 - **Retrieve operations** thanks to `queries` field, which is a dictionary `operation_name => DiscoverQuery`
@@ -1232,7 +1298,7 @@ There are more than one methods to send a discover message, but all wrap `send_d
 
 ##### Offer
 
-When a [plugin](#plugin) receives a discover, it will be processed. In particular, based on plugin's [policy](#policy), if there are some available slots, they are proposed to core.
+When a [plugin](#plugin) receives a discover, it will be processed. In particular, based on plugin's [policy](#policy), if there are some available slots, they are proposed to core thanks to an *offer* message. In particular, `__allow_offer` is used to check compatibility.
 
 First of all, when a new discover event arrives, plugin updates its acquaintances, i.e. updates knowledge about keepalive request topics, keepalive topics and dead time (thanks to `update_acquaintances` method).
 
@@ -1264,9 +1330,11 @@ You can manage pending requests thanks to:
 - `discard_expired_pending_requests` based on `pending_requests_expire_after` and `created_at`
 
 
-##### Request
+##### Reply
 
-When an offer event arrives, similarly to plugins, it update its acquaintances. Then, it evaluates the offer and for each offered operation a core can:
+When an offer event arrives, similarly to plugins, it update its acquaintances. Then, core evaluates the offer and for each offered operation it *replies*.
+
+In particular, there are two different possible reply messages:
 
 - **Request** the operation (actually)
 - **Reject** the operation if not need anymore (e.g., another plugin offers the same operation before)
@@ -1282,16 +1350,42 @@ Instead, if offered operation is still required, then a `RequestOperationMessage
 - `core_side_close_operation_connection_topic`: topic which will be used to send close connection messages
 - `setup_data` (in `bytes`): data which will be used to setup the connection
 
+In addiction, also cores generate new pending requests when a request is sent. This allows cores to request more connections at the same time, avoid too many connections risk. 
+
+> [!NOTE]
+> Independent from request message type, cores update last seen for plugins when an offer message is received. This a side effect which may reduce number of [keepalive](#keepalive) messages.
+
 
 ##### Response
 
-TODO
+Finally, the last protocol stage involves a *response* to cores *if needed*.
 
+In particular, if a `RejectOperationMessage` arrives, plugin removes related pending request in order to make the operation slot available again.
 
+Otherwise, if a `RequestOperationMessage` arrives means that core really want to create a connection. In this case there are two possibilities:
 
-#### Keepalive
+- **Operation's slot is still available**
+- **Operation's slot is not longer available**
 
-TODO
+Availability is checked thanks to `__can_lend_to_core` method.
+
+> [!NOTE]
+> Similarly to cores, plugins update last seen for cores. Again, this a side effect which may reduce number of [keepalive](#keepalive) messages.
+
+If the slot is still available, then related pending request (plugin-side) is *promoted* to actual connection and `_plug_operation_into_core` method is called. 
+This starts plug procedure: last missed and required topics (i.e., `incoming_close_connection_topic` and `operation_input_topic_for_core`) are built, operation is set upped (thanks to `_setup_operation`) 
+and finally `ConfirmConnectionMessage` is sent to core, in order to notify it.
+
+When the [core](#core) receives the `ConfirmConnectionMessage` check if confirmation was expected (otherwise ignores it) and promotes core-side the related pending request, links sink of the operation 
+and subscribes itself to connection's topics.
+
+> [!WARNING]
+> Remember that if you change custom sink for an operation or if you change `override_sink` of an `OperationRequirement`, **already linked sinks will not be modified**. You must close and re-create the connection.
+
+> [!CAUTION]
+> If you use unlucky set of parameters for cores and plugins, a confirmation may arrive to core without a related pending request. This may occur when core's pending request expired before `ConfirmConnectionMessage`. This is the main reason behind needs of close unused connections. If a connection is opened plugin-side and core-side it will not open, connection plugin-side expires naturally, **preventing operation's slot starvation**. For this reason you should always provide a timeout for unused connections, avoiding `None` value for `close_connection_if_unused_after` field.
+
+Instead, if operation's slot is not longer available, plugin sends `OperationNoLongerAvailableMessage` to core in order to notify it. In this case, core simply removes related pending request.
 
 
 ### Orbiter
@@ -1304,7 +1398,7 @@ This method is called periodically in the Orbiter's main [loop](#loop). As alrea
 
 To prevent this behavior, you can set `close_connection_if_unused_after=None` during orbiter instantiation. In this case, `0` is always returned.
 
-#### Loop
+#### Loop implementation
 
 Loop is managed in `__loop` (private) method. The method is private because the entire logic is fully managed and hooks are provided.
 
@@ -1318,26 +1412,132 @@ As already mentioned in [User Guide](#user-guide), `set` and `clear` method of `
 
 #### Custom loop
 
-TODO: how to create a custom loop
+If you don't want to use [regular loop](#loop) into an [orbiter](#orbiter), you can create your custom `asyncio` loop without any strange knowledge about this framework.
+Anyway, **we advice against to use custom loops**, because they reduce performance and must be manually managed by you (instead provided loop is already fully managed by us).
+
+Following we provide you an example to show how to create a custom loop. You can notice that compared with [version with a timer](#periodic-operations) explained in the [User Guide](#user-guide) 
+(the single different is basically `StringMessage` instead of `Int64Message`), there is a lot of more code, you must know how to use `asyncio.Event` and less features (simil-`pause_loop` method is missed).
+
+
+```python
+@dataclass
+class HelloSenderPlugin(Plugin):
+    """
+    This plugin has only one operation which sends a "hello" message periodically
+    """
+
+    __stop_custom_loop: asyncio.Event = field(default_factory=lambda: asyncio.Event())
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # Manually define "hello" operation
+        self.operations["hello"] = Operation(
+            name="hello",     # operation's name
+            input=Input.no_input(),     # no inputs are expected
+            handler=None,               # handler is not needed, given that no inputs must be processed
+            output=Output.from_message(StringMessage),   # "hello" string will be sent to cores
+            policy=Policy.no_constraints()          # no constraint during handshake
+        )
+
+    @override
+    async def _internal_start(self, *args, **kwargs):
+        await super()._internal_start(*args, **kwargs)
+
+        self.__stop_custom_loop.clear()     # allow to start custom loop
+
+        # Start custom loop task
+        asyncio.create_task(        # created task is ignored, because __stop_custom_loop is used
+            self.__custom_loop()
+        )
+
+    @override
+    async def _internal_stop(self, *args, **kwargs):
+        await super()._internal_stop(*args, **kwargs)
+
+        # During plugin stop, custom loop must be stopped too
+        self.__stop_custom_loop.set()
+
+    async def __custom_loop(self):
+        while not self.__stop_custom_loop.is_set():
+            await asyncio.sleep(2)      # to prevent spamming, custom loop is paused for 2 seconds
+
+            await self.__send_hello()
+
+    async def __send_hello(self):
+        connections = await self._retrieve_and_touch_connections(operation_name="hello")  # retrieve current core connections
+
+        tasks = []
+        for connection in connections:
+            if connection.has_output:   # check if output is expected (it should be...)
+                tasks.append(
+                    asyncio.create_task(
+                        self.eventbus_client.publish(   # send random int
+                            connection.output_topic,
+                            "hello"     # hello message
+                        )
+                    )
+                )
+
+        await asyncio.gather(*tasks)
+```
 
 
 
 ### Plugin
 
+#### Manual operations management
+
+We have already provided you some examples of how to manage operations manually, anyway we will cover it again.
+
+Firstly, remember [ways to manage operations](#operations). If you really want to manage them manually you can use `operations` field,
+which is a dictionary `operation_name => Operation` which contains all operations information of a plugin.
+
+In any moment and in any place in your plugin code you can:
+
+- **Add an operation**:
+
+```python
+# Manually define "hello" operation
+self.operations["hello"] = Operation(
+            name="hello",     # operation's name
+            input=Input.no_input(),     # no inputs are expected
+            handler=None,               # handler is not needed, given that no inputs must be processed
+            output=Output.from_message(StringMessage),   # "hello" string will be sent to cores
+            policy=Policy.no_constraints()          # no constraint during handshake
+        )
+```
+
+- **Modified an operation**:
+
+```python
+# e.g., change the policy constraints
+self.operations["hello"].policy.allowlist = ["your_core_identifier"]
+```
+
+- **Remove an operation**:
+
+```python
+del self.operations["hello"]
+```
 
 ### Core
 
-
 #### Manual requirements management
 
+In order to modify operation requirements manually, you can perform the same actions explained for [manual operations management](#manual-operations-management), 
+considering [core](#core) field `operation_requirements` which contains dictionary `operation_name => OperationRequirement`.
 
+#### Manual sinks management
 
+In order to modify sinks manually, you can perform the same actions explained for [manual operations management](#manual-operations-management), 
+considering [core](#core) field `operation_sinks` which contains dictionary `operation_name => EventHandler`.
 
 ## Future Work
 
-We have planned to allow Plugins to send an offer in a second moment, as explained in [handshake](#handshake) section. To do this, we are going to modify Discover message to allow Cores to decide if this new feature must be considered thanks to a boolean flag. 
+We have planned to allow Plugins to send an offer in a second moment, as explained in [handshake](#handshake) section. To do this, we are going to modify [Discover message](#discover) to allow Cores to decide if this new feature must be considered thanks to a boolean flag. 
 
-
+In addiction, we would improve how to change an already linked sink or operation event handler for connections. Now, a connection must be closed and then re-opened.
 
 ## Contribute
 
@@ -1347,914 +1547,4 @@ In order to coordinate the work, please open an issue or a pull request.
 
 Author, designer and creator: Nicola Ricciardi
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## Quick start
-
-```python
-@dataclass
-class LowercaseTextProcessorPlugin(Plugin):
-    @operation(
-        name="lowercase",
-        input=Input.from_message(StringMessage),
-        output=Output.from_message(StringMessage)
-    )
-    async def lowercase_event_handler(self, topic: str, event: Event[StringMessage]):
-        lowercase_text = event.payload.value.lower()
-
-        connections = self._retrieve_connections(input_topic=topic, operation_name="lowercase")
-
-        tasks = []
-        for connection in connections:
-            if connection.has_output:
-                tasks.append(
-                    asyncio.create_task(
-                        self.eventbus_client.publish(
-                            connection.output_topic,
-                            lowercase_text
-                        )
-                    )
-                )
-
-        await asyncio.gather(*tasks)
-```
-
-```python
-@dataclass
-class MyCore(Core):
-    last_result: Optional[str] = None
-
-    @sink("lowercase")
-    async def lowercase_sink(self, topic: str, event: Event[StringMessage]):
-        self.last_result = event.payload.value
-```
-
-```python
-plugin = LowercaseTextProcessorPlugin(
-    eventbus_client=PubSubClientBuilder().with_subscriber(LocalSubscriber(eventbus=LocalEventBus())).with_publisher(LocalPublisher(eventbus=LocalEventBus())).build(),
-)
-
-core = MyCore(
-    eventbus_client=PubSubClientBuilder().with_subscriber(LocalSubscriber(eventbus=LocalEventBus())).with_publisher(LocalPublisher(eventbus=LocalEventBus())).build(),
-    needed_operations={
-        "lowercase": Need(Constraint(
-            inputs=[Input.from_message(StringMessage)],
-            outputs=[Output.from_message(StringMessage)],
-        ))
-    }
-)
-
-await plugin.start()
-await core.start()
-
-await asyncio.sleep(2)
-
-await core.execute(
-    operation_name="lowercase",
-    data=StringMessage("HELLO"),
-    any=True
-)
-
-await asyncio.sleep(1)
-
-assert core.last_result == "hello"
-
-await plugin.stop()
-await core.stop()
-```
-
-## Documentation
-
-Every communication is asynchronous and uses [Busline](https://github.com/orbitalis-framework/py-busline) to send events.
-
-Every time-based values are expressed in seconds, because `asyncio.sleep` is used.
-
-### Overview
-
-Orbitalis allows you to start cores and plugins, connect them together and execute plugin operations.
-Cores and plugins can be started in any time and connections are created based on pre-defined policies.
-
-Messages used by Orbitalis are **Avro messages** because we need input and output schemas.
-
-### Orbiter
-
-`Orbiter` is the base class which provides common capabilities to components.
-
-It manages _pending requests, connections, keepalive and connection close procedure_. In addiction, it has useful _shared methods_ and main _loop_.
-
-Main public attributes:
-
-- `identifier` is the _unique_ identifier
-- `eventbus_client` is a [Busline](https://github.com/orbitalis-framework/py-busline) client, used to send events
-- `discover_topic` specifies topic used to send discover messages
-- `raise_exceptions` if `True`, exceptions are raised, otherwise they are managed by try/catch
-- `loop_interval` specifies how often the loop iterations are called (it is a minimum value, because maximum depends on weight of operations in loop)
-- `with_loop` set to `False` if you don't want the loop (care about _what_ [loop](#loop) do)
-- `close_connection_if_unused_after` if not None, it specifies how many seconds can pass without use a connection, then it is closed
-- `pending_requests_expire_after` if not None, it specifies how many seconds can pass before that a pending request is discarded 
-- `consider_others_dead_after` states how many seconds can pass before that a remote orbiter is considered dead if no keepalive arrives
-- `send_keepalive_before_timelimit` states how many seconds before a keepalive message is sent that other remote orbiter considers current orbiter dead
-- `graceful_close_timeout`: states how many seconds a graceful close connection can be pending
-
-Main hooks:
-
-- `_get_on_close_data`: used to obtain data to send on close connection, by default None is returned
-- `_on_starting`: called before starting
-- `_internal_start`: actual implementation to start the orbiter
-- `_on_started`: called after starting
-- `_on_stopping`: called before stopping
-- `_internal_stop`: actual implementation to stop the orbiter
-- `_on_stopped`: called after stopping
-- `_on_promote_pending_request_to_connection`: called before promotion
-- `_on_keepalive_request`: called on keepalive request, before response
-- `_on_keepalive`: called on inbound keepalive
-- `_on_graceless_close_connection`: called before graceless close connection request is sent
-- `_on_close_connection`: called when a connection is closed
-- `_on_graceful_close_connection`: called before sending graceful close connection request
-- `_on_loop_start`: called on loop start
-- `_on_new_loop_iteration`: called before every loop iteration
-- `_on_loop_iteration_end`: called at the end of every loop iteration
-- `_on_loop_iteration`: called during every loop iteration
-
-Main methods:
-
-- `_retrieve_connections`: retrieve all connections which satisfy query
-- `discard_expired_pending_requests`: remove expired pending requests and return total amount of discarded requests 
-- `close_unused_connections`: send a graceful close request to all remote orbiter if connection was unused based on `close_connection_if_unused_after`
-- `force_close_connection_for_out_to_timeout_pending_graceful_close_connection`: send graceless close connection based on `graceful_timeout` if a connection is in close pending due to graceful close connection 
-- `update_acquaintances`: update knowledge about keepalive request topics, keepalive topics and dead time
-- `have_seen`: update last seen for remote orbiter
-- `send_keepalive`
-- `send_keepalive_request`
-- `send_all_keepalive_based_on_connections`: send keepalive messages to all remote orbiters which have a connection with this orbiter
-- `send_keepalive_based_on_connections_and_threshold`: send keepalive messages to all remote orbiters which have a connection with this orbiter only if `send_keepalive_before_timelimit` seconds away from being considered dead this orbiter
-- `send_graceless_close_connection`: send a graceless close connection request to specified remote orbiter, therefore, self side connection will be closed immediately
-- `send_graceful_close_connection`: send a graceful close connection request to specified remote orbiter, therefore self side connection is not close immediately, but ACK is waited
-- `_close_self_side_connection`: close local connection with remote orbiter, therefore only this orbiter will no longer be able to use connection. Generally, a close connection request was sent before this method call.
-- `_loop`: contains loop logic (it should not be overridden)
-
-
-### Plugin
-
-`Plugin` is an `Orbiter` and it is basically an _operations provider_. In a certain sense, plugins lent possibility to execute their operations.
-
-In particular, every plugin has a set of operations which are exposed to other components (i.e., cores).
-Only connected components should execute operations (but this is not strictly ensured, you should check if there is a valid connection during operation elaboration).
-
-A plugin is a state machine which follows this states:
-
-```mermaid
-stateDiagram-v2
-    [*] --> CREATED
-    CREATED --> RUNNING: start()
-    RUNNING --> STOPPED: stop()
-    STOPPED --> RUNNING: start()
-    STOPPED --> [*]
-```
-
-Main hooks:
-
-- `_on_new_discover`: called when a new discover message arrives
-- `_on_reject`: called when a reject message arrives
-- `_setup_operation`: called to set up operation when connection is created
-- `_on_request`: called when a new request message arrives
-- `_on_reply`: called when a new reply message arrives
-
-Main methods:
-
-- `send_offer`: send a new offer message in given topic to given core identifier (it should be used only if you want to send an offer message manually)
-- `with_operation`: generally used during creation, allows you to specify additional operations (but generally we use decorator)
-- `with_custom_policy`: generally used during creation, allows you to specify a custom operation policy
-
-#### Operations
-
-An operation (`Operation`) represents a feature of a plugin, which is exposed and can be executed remotely. 
-Operations are managed by `OperationsProviderMixin` which also provides builder-like methods.
-
-Every operation has the following attributes:
-
-- `name`: unique name which identify the operation
-- `handler`: [Busline](https://github.com/orbitalis-framework/py-busline) handler, which will be used to handle inbound events
-- `policy`: specifies default operation lending rules, you can override this using `with_custom_policy` method or modifying `operations` attribute directly
-- `input`: specifies which is the acceptable input
-- `output`: specifies which is the sendable output
-
-Even if output can be specified, if a `Core` doesn't need it, it is not sent.
-
-You can add manually operations to a plugin thanks to `operations` attribute, otherwise you can use `@operation` **decorator**. 
-
-`@operation` if you don't provide an `input` or an `output`, they are considered "no input/output" (see [input/output](#input--output)). 
-If you don't specify `default_policy`, `Policy.no_constraints()` is assigned.
-
-For example, if you want to create a plugin having an operation `"lowercase"` which supports strings as input and produces strings (without lent constraints):
-
-```python
-@dataclass
-class LowercaseTextProcessorPlugin(Plugin):
-    @operation(
-        name="lowercase",
-        input=Input.from_message(StringMessage),
-        output=Output.from_message(StringMessage)
-    )
-    async def lowercase_event_handler(self, topic: str, event: Event[StringMessage]):
-        ...
-```
-
-> [!NOTE]
-> Method name is not related to operation's name.
-
-`@operation` automatically add to `operations` attributes the generated `Operation` object, related to (operation) `name` key.
-
-##### Policy
-
-`Policy` allows you to specify for an operation:
-
-- `maximum` amount of connections
-- `allowlist` of remote orbiters
-- `blocklist` of remote orbiters
-
-Obviously, you can specify `allowlist` or `blocklist`, not both.
-
-If you don't want constraints: `Policy.no_constraints()`.
-
-##### Input & Output
-
-`Input` and `Output` are both `SchemaSpec`, i.e. the way to specify a schema set.
-
-In a `SchemaSpec` we can specify `support_empty_schema` if we want to support payload-empty events, 
-`support_undefined_schema` if we want to accept every schema and/or a schema list (`schemas`). A schema is a string.
-
-We do have an input or an output only if:
-
-```python
-support_undefined_schema or support_empty_schema or has_some_explicit_schemas
-```
-
-In other words, we must always specify an `Input`/`Output` even if it is "no input/output". 
-We can easily generate a "no input/output" thanks to: 
-
-```python
-input = Input.no_input()
-
-assert not input.has_input
-
-output = Output.no_output()
-
-assert not output.has_output
-```
-
-If we want to generate a filled `Input`/`Output`:
-
-```python
-Input.from_message(MyMessage)
-
-Input.from_schema(MyMessage.avro_schema())
-
-Input.empty()
-
-Input.undefined()
-
-Input(schemas=[...], support_empty_schema=True, support_undefined_schema=False)
-```
-
-By default, given that we use Avro JSON schemas, two schemas are compatible if the dictionary version of both is equal or
-if the string version of both is equal.
-
-For this reason, you must avoid time-based default value in your classes, because Avro set as default a time-variant value. 
-Therefore, in this way, two same-class schema are **different**, even if they are related to the same class.
-
-```python
-created_at: datetime = field(default_factory=lambda: datetime.now())    # AVOID !!!
-```
-
-#### Plugins inheritance example
-
-```python
-@dataclass
-class StatusMessage(AvroMessageMixin):
-    plugin_identifier: str
-    status: str
-    created_at: datetime = None
-
-    def __post_init__(self):
-        if self.created_at is None:
-            self.created_at = datetime.now()
-
-
-class LampStatus(StrEnum):
-    ON = "on"
-    OFF = "off"
-
-
-@dataclass
-class LampPlugin(Plugin, ABC):
-    kwh: float
-    status: LampStatus = field(default=LampStatus.OFF)
-    on_at: Optional[datetime] = field(default=None)
-    total_kwh: float = field(default=0.0)
-
-    @property
-    def is_on(self) -> bool:
-        return self.status == LampStatus.ON
-
-    @property
-    def is_off(self) -> bool:
-        return self.status == LampStatus.OFF
-
-    def turn_on(self):
-        self.status = LampStatus.ON
-
-        if self.on_at is None:
-            self.on_at = datetime.now()
-
-    def turn_off(self):
-        self.status = LampStatus.OFF
-
-        if self.on_at is not None:
-            self.total_kwh += self.kwh * (datetime.now() - self.on_at).total_seconds() / 3600
-
-            self.on_at = None
-
-    @operation(
-        name="get_status",
-        input=Input.empty(),
-        output=Output.from_message(StatusMessage)
-    )
-    async def get_status_event_handler(self, topic: str, event: Event):
-        connections = self._retrieve_connections(input_topic=topic, operation_name="get_status")
-
-        assert len(connections) == 1
-
-        connection = connections[0]
-
-        assert connection.output_topic is not None
-        assert connection.output.has_output
-
-        await self.eventbus_client.publish(
-            connection.output_topic,
-            StatusMessage(self.identifier, str(self.status))
-        )
-
-        connection.touch()
-
-
-    @abstractmethod
-    async def turn_on_event_handler(self, topic: str, event: Event):
-        raise NotImplemented()
-
-    @abstractmethod
-    async def turn_off_event_handler(self, topic: str, event: Event):
-        raise NotImplemented()
-```
-
-```python
-@dataclass
-class LampXPlugin(LampPlugin):
-
-    @operation(
-        name="turn_on",
-        input=Input.empty()
-    )
-    async def turn_on_event_handler(self, topic: str, event: Event):
-        self.turn_on()
-
-    @operation(
-        name="turn_off",
-        input=Input.empty()
-    )
-    async def turn_off_event_handler(self, topic: str, event: Event):
-        self.turn_off()
-```
-
-```python
-LampXPlugin(
-    identifier="lamp_x_plugin",
-    eventbus_client=...,
-    raise_exceptions=True,
-    with_loop=False,
-    kwh=24      # LampPlugin-specific attribute
-).with_custom_policy(
-    operation_name="turn_on",
-    policy=Policy(allowlist=["smart_home"])
-)
-```
-
-```python
-@dataclass(frozen=True)
-class TurnOnLampYMessage(AvroMessageMixin):
-    power: float = field(default=1)
-
-    def __post_init__(self):
-        assert 0 < self.power <= 1
-
-@dataclass(frozen=True)
-class TurnOffLampYMessage(AvroMessageMixin):
-    reset_consumption: bool = field(default=False)
-
-
-
-@dataclass(kw_only=True)
-class LampYPlugin(LampPlugin):
-    power: float = field(default=1)
-
-    @override
-    def turn_off(self):
-        self.status = LampStatus.OFF
-
-        if self.on_at is not None:
-            self.total_kwh += self.power * self.kwh * (datetime.now() - self.on_at).total_seconds() / 3600
-            self.on_at = None
-
-    @operation(
-        name="turn_on",
-        input=Input.from_schema(TurnOnLampYMessage.avro_schema())
-    )
-    async def turn_on_event_handler(self, topic: str, event: Event[TurnOnLampYMessage]):
-        self.turn_on()
-        self.power = event.payload.power
-
-    @operation(
-        name="turn_off",
-        input=Input.from_schema(TurnOffLampYMessage.avro_schema())
-    )
-    async def turn_off_event_handler(self, topic: str, event: Event[TurnOffLampYMessage]):
-        self.turn_off()
-
-        if event.payload.reset_consumption:
-            self.total_kwh = 0
-```
-
-```python
-LampYPlugin(
-    identifier="lamp_y_plugin",
-    eventbus_client=...,
-    raise_exceptions=True,
-    with_loop=False,
-
-    kwh=42
-)
-```
-
-
-### Core
-
-`Core` is an `Orbiter` and it is the component which connects itself to [plugins](#plugin), in order to be able to execute their operations.
-
-We must notice that Orbitalis' cores are able to manage operations having different inputs/outputs (but same name), thanks to (Avro) schemas.
-
-We can use a core to execute operations and collect outputs (if they are present).
-
-```mermaid
-sequenceDiagram
-    Core->>Plugin: Execute Operation (with Input)
-    Plugin-->>Core: Output to Sink
-```
-
-A core can also receive messages without an explicit `execute` call.
-
-```mermaid
-sequenceDiagram
-    Plugin->>Core: Message to Sink
-    Plugin->>Core: Message to Sink
-    Plugin->>Core: Message to Sink
-```
-
-We can specify needed operations which make a core compliant with respect to our needs. In fact, `Core` follows these states changes:
-
-```mermaid
-stateDiagram-v2
-    [*] --> CREATED
-    CREATED --> COMPLIANT: start()
-    CREATED --> NOT_COMPLIANT: start()
-    COMPLIANT --> NOT_COMPLIANT
-    NOT_COMPLIANT --> COMPLIANT
-    COMPLIANT --> STOPPED: stop()
-    NOT_COMPLIANT --> STOPPED: stop()
-    STOPPED --> [*]
-```
-
-`COMPLIANT` when all needs are satisfied, otherwise `NOT_COMPLIANT`.
-
-Main public attributes:
-
-- `discovering_interval`: interval between two discover messages (only when loop is enabled)
-- `needed_operations`: specifies which operations are needed to be compliant with needs, their constraints and optionally the default setup data
-- `operation_sinks` (see [sinks](#sinks))
-
-Main hooks:
-
-- `_on_compliant`: called when core becomes compliant
-- `_on_not_compliant`: called when core becomes not compliant
-- `_on_send_discover`: called before discover message is sent
-- `_get_setup_data`: called to obtain setup data which generally will be sent to plugins. By default, `default_setup_data` is used
-- `_on_new_offer`: called when a new offer arrives
-- `_on_confirm_connection`: called when a confirm connection arrives
-- `_on_operation_no_longer_available`: called when operation no longer available message arrives
-- `_on_response`: called when response message arrives
-
-Main methods:
-
-- `current_constraint_for_operation`: returns current constraint for operation based on current connections
-- `is_compliant_for_operation`: evaluate at run-time if core is compliant for given operation based on its configuration. It may be a time-consuming operation
-- `is_compliance`: evaluate at run-time if core is global compliant based on its configuration. It may be a very time-consuming operation
-- `update_compliant`: use `is_compliant` to update core's state
-- `_operation_to_discover`: returns a dictionary `operation_name` => `not_satisfied_need`, based on current connections. This operations should be discover
-- `send_discover_for_operations`
-- `send_discover_based_on_needs`
-- `execute`: execute the operation by its name, sending provided data. You must specify which plugin must be used, otherwise `ValueError` is raised.
-- `sudo_execute`: bypass all checks and send data to topic
-
-#### Needs
-
-`needed_operations` attribute is a dictionary where keys are operation names and values are `Need` objects.
-
-We can specify:
-
-- `constraint`: set of rules to manage connection requests
-- `override_sink`: to specify a different sink with respect to default provided by core 
-- `default_setup_data`: bytes which are send by default to plugin on connection establishment
-
-`Constraint` class allows you to be very granular in rule specifications:
-
-- `mandatory`: list of needed plugin identifiers
-- `minimum` number of additional plugins (plugins in mandatory list are excluded)
-- `maximum` number of additional plugins (plugins in mandatory list are excluded)
-- `allowlist`/`blocklist`
-- `inputs`: represents the list of supported `Input` 
-- `outputs`: represents the list of supported `Output` 
-
-In other words, you can specify a list of possible and different inputs and outputs which are supported by your core.
-
-You must observe that inputs and outputs are not related, therefore all possible combinations are evaluated.
-
-For example, if your core needs these operations:
-
-- `operation1`: `"plugin1"` is mandatory, at least 2 additional plugins, maximum 5 additional plugins. Borrowable `operation1` can be fed with "no input", `Operation1InputV1Message` or `Operation1InputV2Message`, instead they produce nothing as output
-- `operation2`: `"plugin1"` and `"plugin2"` are mandatory, there is no a minimum or a maximum number of additional plugins. Borrowable `operation2` must be feedable with empty events (no message) and they must produce `Opeartion2OutputMessage` messages
-- `operation3`: no mandatory plugins required, no additional plugins required (any number of connections). `operation3` has no input (therefore core doesn't interact with plugin, but is plugin to send data arbitrary). `Operation3Output` is expected to be sent to core
-
-```python
-YourCore(
-    ...,
-    needed_operations={
-        "operation1": Need(Constraint(
-            minimum=2,
-            maximum=5,
-            mandatory=["plugin1"],
-            inputs=[Input.no_input(), Input.from_message(Operation1InputV1Message), Input.from_message(Operation1InputV2Message)],
-            outputs=[Output.no_output()]
-        )),
-        "operation2": Need(Constraint(
-            minimum=0,
-            mandatory=["plugin1", "plugin2"],
-            inputs=[Input.empty()],
-            outputs=[Output.from_message(Opeartion2OutputMessage)]
-        )),
-        "operation3": Need(Constraint(
-            inputs=[Input.no_input()],
-            outputs=[Output.from_message(Operation3Output)]
-        )),
-    }
-)
-```
-
-#### Sinks
-
-In order to be able to handle operation outputs, cores must be equipped with `Sink`, which are basically Busline's `EventHandler` _associated to an operation_.
-
-Operation's sinks are stored in `operation_sinks`. You can manually add them directly or using `with_operation_sink` method.
-Otherwise, we advise you to use `@sink` decorator, which you can use to decorator your methods and functions providing operation name. For example:
-
-```python
-@dataclass
-class MyCore(Core):
-
-    @sink("my_operation_name")
-    async def lowercase_sink(self, topic: str, event: Event[MyMessage]):
-        ...
-```
-
-#### Example
-
-You should consider plugins of [this example](#plugins-inheritance-example).
-
-```python
-@dataclass
-class SmartHomeCore(Core):
-    lamp_status: Dict[str, str] = field(default_factory=dict)
-
-    @sink(
-        operation_name="get_status"
-    )
-    async def get_status_sink(self, topic: str, event: Event[StatusMessage]):
-        self.lamp_status[event.payload.lamp_identifier] = event.payload.status
-```
-
-```python
-smart_home = SmartHomeCore(
-   identifier="smart_home",
-   eventbus_client=...,
-   needed_operations={
-       "turn_on": Need(
-           Constraint(
-               minimum=1,
-               inputs=[Input.empty()],
-               outputs=[Output.no_output()]
-           )
-       ),
-       "turn_off": Need(
-           Constraint(
-               minimum=1,
-               inputs=[Input.empty()],
-               outputs=[Output.no_output()]
-           )
-       ),
-   }
-)
-```
-
-### Connections
-
-A connection is a link between a core and a plugin **related to a single operation**, therefore more connections can be present between same core and plugin.
-
-`Connection` class store all information about a connection:
-
-- `operation_name`
-- `remote_identifier`
-- `incoming_close_connection_topic`: topic on which close connection request arrives from remote orbiter
-- `close_connection_to_remote_topic`: topic which orbiter must use to close connection with remote orbiter
-- `lock`: `asyncio.Lock`, used to synchronize connection uses
-- `input`: acceptable `Input`
-- `output`: sendable `Output`
-- `input_topic`
-- `output_topic`
-- `soft_closed_at`: used during graceful close connection
-- `created_at`: connection creation datetime
-- `last_use`: datetime of last use
-
-`last_use` must be updated manually, if you want to update it, using `touch` method.
-
-For example, when a new message arrives:
-
-```python
-@dataclass
-class MyPlugin(Plugin):
-    @operation(
-        name="my_operation",
-        input=...,
-        output=...
-    )
-    async def lowercase_event_handler(self, topic: str, event: Event[...]):
-        connections = self._retrieve_connections(input_topic=topic, operation_name="my_operation")
-        
-        for connection in connections:
-            async with connection.lock:
-                connection.touch()
-```
-
-Orbiter connections are stored in `_connections` attribute.
-
-You can manage them using following methods:
-
-- `_add_connection`
-- `_remove_connection` (_does not lock automatically the connection_)
-- `_connections_by_remote_identifier`: retrieves connection based on remote identifier
-- `_retrieve_connections`: to query connections
-- `_find_connection_or_fail`: find _the_ connection based on `operation_name` and `input_topic` 
-- `close_unused_connections` based on `close_connection_if_unused_after` and `last_use`
-
-#### Pending requests
-
-`PendingRequest` contains information about future connection. It is built during [handshake](#handshake) process, so generally you should not use this class.
-Anyway, it has `into_connection` method to build a `Connection` and, similarly to connections, has a `lock` attribute to synchronize elaborations.
-`created_at` is the field used to check if a pending request must be discarded.
-
-You can manage pending requests thanks to:
-
-- `_pending_requests_by_remote_identifier`: retrieves pending requests based on remote identifier
-- `_add_pending_request` 
-- `_remove_pending_request` (_does not lock automatically the pending request_)
-- `_is_pending` to know if there is a pending request related to a remote identifier and an operation name
-- `_promote_pending_request_to_connection`: (_does not lock automatically the pending request_) transforms a pending request into a connection
-- `discard_expired_pending_requests` based on `pending_requests_expire_after` and `created_at`
-
-### Handshake
-
-To allow cores and plugins to create connections a handshake mechanism was implemented based on how DHCP works.
-
-![DHCP](doc/assets/images/dhcp.jpg)
-
-There are 4 steps:
-
-1. **Discover**: message used by cores to notify plugins of their presence and to ask operations connections, core provides a full set of pluggable operations with related information
-2. **Offer**: Message used by plugins to response to discover message, providing their base information and a list of offered operations. List of offered operations can be smaller than fullset provided by discover
-3. **Reply**
-   - **Request**: message used by core to formally request an operation. Every operation has own request. Core provides additional information to finalize the connection
-   - **Reject**: message used by core to formally reject an operation (e.g., not needed anymore). Every operation has own reject
-4. **Response**
-   - **Confirm**: message used by plugins to confirm the connection creation
-   - **OperationNoLongerAvailable**: message used by plugins to notify core that operation is no longer available
-
-```mermaid
-sequenceDiagram
-    Core->>Plugin: Discover
-    Plugin->>Plugin: New pending requests
-    Plugin->>Core: Offer
-    par for each offered operation
-        alt is still needed
-            Core->>Core: New pending request
-            Core->>Plugin: Request
-        else not needed anymore
-            Core->>Plugin: Reject
-            Plugin->>Plugin: Remove pending request
-        end
-    end
-    par for each requested operation
-        alt is still available
-            Plugin->>Plugin: Promote pending request to connection
-            Plugin->>Core: Confirm
-            Core->>Core: Promote pending request to connection
-        else operation no longer available
-            Plugin->>Plugin: Remove pending request
-            Plugin->>Core: OperationNoLongerAvailable
-            Core->>Core: Remove pending request
-        end
-    end
-```
-
-Orbiters which are related to the same context must use the same **discover topic** (by default `$handshake.discover`).
-It can be set using `discover_topic` attribute.
-
-Other topics are automatically generated, but generation can be modified overriding `_build_*` methods.
-
-We must notice that discover and offer messages are also used to share information about presence of cores/plugins.
-Theoretically, this means that a plugin may send an offer without an explicit discover, 
-for example if a connection is closed and a slot for an operation becomes available. Anyway, this is not performed in current implementation.
-
-### Close connections
-
-An orbiter can close a connection in every moment. There are two ways to close a connection:
-
-- **Graceless**: orbiter sends a `GracelessCloneConnectionMessage` to remote one and close connection immediately
-
-```mermaid
-sequenceDiagram
-    Core->>Core: Close connection
-    Core->>Plugin: Graceless close connection
-    Plugin->>Plugin: Close connection
-```
-
-- **Graceful**: orbiter sends a `GracefulCloseConnectionMessage` to remote one. Remote orbiter is able to perform some operations before connection is actually closed. Remote orbiter must send a `CloseConnectionAckMessage`, after that connection is closed. If `graceful_close_timeout` is not `None` is used to send graceless close connection if ACK is not sent. 
-
-```mermaid
-sequenceDiagram
-    Core->>Plugin: Graceful close connection
-    activate Core
-    Plugin->>Plugin: Some operations
-    Plugin->>Plugin: Close connection
-    Plugin->>Core: Close connection ACK
-    deactivate Core
-    Core->>Core: Close connection
-```
-
-When all connections with a remote orbiter are closed, orbiter unsubscribes itself from topics in `_unsubscribe_on_full_close_bucket` field.
-
-Hooks:
-
-- `_on_graceless_close_connection`: called before graceless close connection request is sent
-- `_on_close_connection`: called when a connection is closed
-- `_on_graceful_close_connection`: called before sending graceful close connection request
-
-
-### Keepalive
-
-Keepalive mechanism allows orbiters to preserve connections during the time. Every orbiter must send a keepalive to all own linked orbiters.
-
-An orbiter can _request_ a keepalive using `send_keepalive_request` method, which sends a `KeepaliveRequestMessage`.
-
-```mermaid
-sequenceDiagram
-    Orbiter 1->>Orbiter 2: Keepalive request
-    Orbiter 2->>Orbiter 1: Keepalive
-```
-
-Keepalive are sent using `KeepaliveMessage` messages. You can manually send a keepalive using `send_keepalive` method.
-
-In addiction, `send_all_keepalive_based_on_connections` and `send_keepalive_based_on_connections_and_threshold` are provided.
-`send_all_keepalive_based_on_connections` sends a keepalive to all remote orbiters which have an opened connection, 
-instead `send_keepalive_based_on_connections_and_threshold` sends a keepalive to all remote orbiters which have an opened connection 
-only if it is in range `send_keepalive_before_timelimit` seconds before remote orbiter considers it _dead_.
-
-You can know which are dead remote orbiters thanks to `dead_remote_identifiers` property.
-
-Main related fields:
-
-- `_others_considers_me_dead_after`
-- `_remote_keepalive_request_topics`
-- `_remote_keepalive_topics`
-- `_last_seen`
-- `_last_keepalive_sent`
-
-Hooks:
-
-- `_on_keepalive_request`: called on keepalive request, before response
-- `_on_keepalive`: called on inbound keepalive
-
-### Loop
-
-Every orbiter has an internal loop which performs periodically operations. Loop can be avoided setting `with_loop=False`.
-
-Loop is stopped when `stop()` method is called, but you can stop it prematurely using `_stop_loop_controller.set()`. 
-If you want to pause loop, you must `set` and `clear`: `_pause_loop_controller`.
-
-Additionally to hooks, the following operations (already discussed) are executed in parallel:
-
-- `_on_loop_iteration`
-- `close_unused_connections`
-- `discard_expired_pending_requests`
-- `force_close_connection_for_out_to_timeout_pending_graceful_close_connection`
-- `send_keepalive_based_on_connections_and_threshold`
-
-Hooks:
-
-- `_on_loop_start`: called on loop start
-- `_on_new_loop_iteration`: called before every loop iteration
-- `_on_loop_iteration_end`: called at the end of every loop iteration
-- `_on_loop_iteration`: called during every loop iteration
 

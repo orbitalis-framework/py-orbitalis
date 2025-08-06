@@ -13,7 +13,7 @@ from orbitalis.plugin.plugin import Plugin
 
 class LampStatus(StrEnum):
     """
-    Utility enum to define possible lamp statuses
+    Utility enum to define possible plugin statuses
     """
 
     ON = "on"
@@ -38,11 +38,11 @@ class StatusMessage(AvroMessageMixin):
 @dataclass
 class LampPlugin(Plugin, ABC):
     """
-    Plugin to control a smart lamp which has an energy-meter
+    Plugin to control a smart plugin which has an energy-meter
     """
 
     # Custom plugin attributes
-    kw: float  # lamp energy consumption
+    kw: float  # plugin energy consumption
     status: LampStatus = field(default=LampStatus.OFF)
     on_at: Optional[datetime] = field(default=None) # datetime of on request
     total_kwh: float = field(default=0.0)   # total consumption history
@@ -63,7 +63,7 @@ class LampPlugin(Plugin, ABC):
 
     def turn_off(self):
         """
-        Turn off this lamp and update consumption history
+        Turn off this plugin and update consumption history
         """
 
         self.status = LampStatus.OFF

@@ -263,7 +263,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return self.operation_requirements[offered_operation.name].default_setup_data
 
-    async def _request_operation(self, plugin_identifier: str, reply_topic: str, offered_operation: OfferedOperation):
+    async def __request_operation(self, plugin_identifier: str, reply_topic: str, offered_operation: OfferedOperation):
 
         logging.debug(f"{self}: operations to request: {offered_operation}")
 
@@ -305,9 +305,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         )
 
 
-    async def _reject_operation(self, plugin_identifier: str, reply_topic: str, offered_operation: OfferedOperation):
-        self.have_seen(plugin_identifier)
-
+    async def __reject_operation(self, reply_topic: str, offered_operation: OfferedOperation):
         await self.eventbus_client.publish(
             reply_topic,
             RejectOperationMessage(
@@ -315,11 +313,6 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 operation_name=offered_operation.name
             )
         )
-
-        pending_request = self._pending_requests_by_remote_identifier(plugin_identifier)[offered_operation.name]
-
-        async with pending_request.lock:
-            self._remove_pending_request(pending_request)
 
     async def _on_new_offer(self, offer_message: OfferMessage):
         """
@@ -346,14 +339,13 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         tasks = []
         for offered_operation in event.payload.offered_operations:
             if self._is_plugin_operation_required_and_pluggable(event.payload.plugin_identifier, offered_operation):
-                tasks.append(asyncio.create_task(self._request_operation(
+                tasks.append(asyncio.create_task(self.__request_operation(
                     event.payload.plugin_identifier,
                     event.payload.reply_topic,
                     offered_operation
                 )))
             else:
-                tasks.append(asyncio.create_task(self._reject_operation(
-                    event.payload.plugin_identifier,
+                tasks.append(asyncio.create_task(self.__reject_operation(
                     event.payload.reply_topic,
                     offered_operation
                 )))
@@ -378,8 +370,6 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         plugin_identifier = event.payload.plugin_identifier
         operation_name = event.payload.operation_name
 
-        self.have_seen(plugin_identifier)
-
         if not self._is_pending(plugin_identifier, operation_name):
             logging.warning(f"{self}: operation {operation_name} from plugin {plugin_identifier} was not requested")
             return
@@ -396,7 +386,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
                 await self.eventbus_client.subscribe(
                     pending_request.incoming_close_connection_topic,
-                    self.__close_connection_event_handler
+                    self._close_connection_event_handler
                 )
 
                 topics_to_unsubscribe_if_error.append(pending_request.incoming_close_connection_topic)
@@ -454,8 +444,6 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     async def __operation_no_longer_available_event_handler(self, topic: str, event: Event[OperationNoLongerAvailableMessage]):
         await self._on_operation_no_longer_available(event.payload)
 
-        self.have_seen(event.payload.plugin_identifier)
-
         try:
             pending_request = self._pending_requests[event.payload.plugin_identifier][event.payload.operation_name]
 
@@ -474,6 +462,8 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     async def __response_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage | OperationNoLongerAvailableMessage]):
 
         logging.info(f"{self}: new response: {topic} -> {event}")
+
+        self.have_seen(event.payload.plugin_identifier)
 
         await self._on_response()
 

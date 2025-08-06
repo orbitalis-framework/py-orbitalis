@@ -10,7 +10,7 @@ from orbitalis.core.core import Core
 from orbitalis.core.requirement import Constraint, OperationRequirement
 from orbitalis.core.sink import sink
 from orbitalis.orbiter.schemaspec import Input, Output
-from tests.plugin.text_processor.lowercase_text_processor_plugin import LowercaseTextProcessorPlugin
+from tests.text_processor.lowercase_text_processor_plugin import LowercaseTextProcessorPlugin
 from tests.utils import build_new_local_client
 
 

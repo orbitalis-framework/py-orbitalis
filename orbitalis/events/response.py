@@ -17,7 +17,6 @@ class ConfirmConnectionMessage(AvroMessageMixin):
     """
 
     plugin_identifier: str
-
     operation_name: str
     operation_input_topic: Optional[str]
     plugin_side_close_operation_connection_topic: str

@@ -21,10 +21,14 @@ class Policy(AllowBlockListMixin):
 @dataclass(kw_only=True)
 class Operation:
     name: str
-    handler: EventHandler
+    handler: Optional[EventHandler]
     policy: Policy
     input: Input
     output: Output
+
+    def __post_init__(self):
+        if self.input.has_input and self.handler is None:
+            raise ValueError("Missed handler")
 
 
 @dataclass(kw_only=True)

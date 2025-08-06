@@ -77,7 +77,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         if connection.has_input:
             await self.eventbus_client.unsubscribe(connection.input_topic)
 
-    def can_lend_to_core(self, core_identifier: str, operation_name: str) -> bool:
+    def __can_lend_to_core(self, core_identifier: str, operation_name: str) -> bool:
         if not self.operations[operation_name].policy.is_compatible(core_identifier):
             return False
 
@@ -124,7 +124,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         if not core_discover_query.output_is_compatible(self.operations[core_needed_operation_name].output):
             return False
 
-        if not self.can_lend_to_core(core_identifier, core_needed_operation_name):
+        if not self.__can_lend_to_core(core_identifier, core_needed_operation_name):
             return False
 
         return True
@@ -242,8 +242,6 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
         await self._on_reject(event.payload)
 
-        self.have_seen(event.payload.core_identifier)
-
         try:
             pending_request = self._pending_requests[event.payload.core_identifier][event.payload.operation_name]
 
@@ -279,7 +277,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
             await self.eventbus_client.subscribe(
                 plugin_side_close_operation_connection_topic,
-                self.__close_connection_event_handler
+                self._close_connection_event_handler
             )
             topics_to_unsubscribe_if_error.append(plugin_side_close_operation_connection_topic)
 
@@ -321,8 +319,6 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         core_identifier = event.payload.core_identifier
         operation_name = event.payload.operation_name
 
-        self.have_seen(core_identifier)
-
         logging.debug(f"{self}: core {core_identifier} confirms plug request for this operation: {operation_name}")
 
         if not self._is_pending(core_identifier, operation_name):
@@ -337,7 +333,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
                 return
 
             try:
-                if not self.can_lend_to_core(core_identifier, operation_name):
+                if not self.__can_lend_to_core(core_identifier, operation_name):
                     logging.debug(f"{self}: can not lend to core '{core_identifier}' operation: {operation_name}")
 
                     await self.eventbus_client.publish(
@@ -381,6 +377,8 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
     @event_handler
     async def __reply_event_handler(self, topic: str, event: Event[RequestOperationMessage | RejectOperationMessage]):
         logging.info(f"{self}: new reply: {topic} -> {event}")
+
+        self.have_seen(event.payload.core_identifier)
 
         await self._on_reply()
 
