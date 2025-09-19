@@ -140,17 +140,17 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(self.smart_home1.is_compliant())
 
-        self.assertTrue(len(self.smart_home1._retrieve_connections(
+        self.assertTrue(len(self.smart_home1.retrieve_connections(
             remote_identifier=self.lamp_x_plugin.identifier,
             operation_name="turn_on"
         )) == 1)
 
-        self.assertTrue(len(self.lamp_x_plugin._retrieve_connections(
+        self.assertTrue(len(self.lamp_x_plugin.retrieve_connections(
             remote_identifier=self.smart_home1.identifier,
             operation_name="turn_on"
         )) == 1)
 
-        self.assertTrue(len(self.lamp_x_plugin._retrieve_connections(
+        self.assertTrue(len(self.lamp_x_plugin.retrieve_connections(
             remote_identifier=self.smart_home1.identifier,
             operation_name="turn_off"
         )) == 1)
@@ -173,7 +173,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(1)
 
-        self.assertTrue(len(self.smart_home1._retrieve_connections(
+        self.assertTrue(len(self.smart_home1.retrieve_connections(
             remote_identifier=self.lamp_x_plugin.identifier,
             operation_name="turn_on"
         )) == 0)
@@ -184,7 +184,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
 
         await asyncio.sleep(1)
 
-        self.assertTrue(len(self.smart_home1._retrieve_connections(
+        self.assertTrue(len(self.smart_home1.retrieve_connections(
             remote_identifier=self.lamp_x_plugin.identifier,
             operation_name="turn_off"
         )) == 0)

@@ -243,9 +243,9 @@ class Orbiter(ABC):
         raise ValueError(f"{self}: no pending request for identifier '{pending_request.remote_identifier}' and operation '{pending_request.operation_name}'")
 
 
-    def _retrieve_connections(self, *, remote_identifier: Optional[str] = None, input_topic: Optional[str] = None,
-                              output_topic: Optional[str] = None, operation_name: Optional[str] = None,
-                              input: Optional[Input] = None, output: Optional[Output] = None) -> List[Connection]:
+    def retrieve_connections(self, *, remote_identifier: Optional[str] = None, input_topic: Optional[str] = None,
+                             output_topic: Optional[str] = None, operation_name: Optional[str] = None,
+                             input: Optional[Input] = None, output: Optional[Output] = None) -> List[Connection]:
         """
         Retrieve all connections which satisfy query
         """
@@ -284,7 +284,7 @@ class Orbiter(ABC):
         Raise ValueError if too many connections are found or if there are no connections.
         """
 
-        connections = self._retrieve_connections(
+        connections = self.retrieve_connections(
             input_topic=input_topic,
             operation_name=operation_name
         )
@@ -303,7 +303,7 @@ class Orbiter(ABC):
         Finally, connections are returned.
         """
 
-        connections = self._retrieve_connections(
+        connections = self.retrieve_connections(
             input_topic=input_topic,
             operation_name=operation_name
         )
@@ -671,7 +671,7 @@ class Orbiter(ABC):
         try:
             await self._on_graceful_close_connection(remote_identifier, operation_name, data)
 
-            connections = self._retrieve_connections(
+            connections = self.retrieve_connections(
                 remote_identifier=remote_identifier,
                 operation_name=operation_name
             )

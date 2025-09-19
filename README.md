@@ -163,7 +163,7 @@ Main hooks:
 
 Main methods:
 
-- `_retrieve_connections`: retrieve all connections which satisfy query
+- `retrieve_connections`: retrieve all connections which satisfy query
 - `discard_expired_pending_requests`: remove expired pending requests and return total amount of discarded requests 
 - `close_unused_connections`: send a graceful close request to all remote orbiter if connection was unused based on `close_connection_if_unused_after`
 - `force_close_connection_for_out_to_timeout_pending_graceful_close_connection`: send graceless close connection based on `graceful_timeout` if a connection is in close pending due to graceful close connection 
@@ -304,7 +304,7 @@ class MyPlugin(Plugin):
     async def its_event_handler(self, topic: str, event: Event[...]):
 
         # Retrieve connections related to the input topic and the operation name
-        connections = self._retrieve_connections(
+        connections = self.retrieve_connections(
             input_topic=topic, 
             operation_name="my_operation"
         )
@@ -346,7 +346,7 @@ You can manage them using following methods:
 - `_add_connection`
 - `_remove_connection` (_does not lock automatically the connection_)
 - `_connections_by_remote_identifier`: retrieves connection based on remote identifier
-- `_retrieve_connections`: to query connections
+- `retrieve_connections`: to query connections
 - `_find_connection_or_fail`: find _the_ connection based on `operation_name` and `input_topic` 
 - `close_unused_connections` based on `close_connection_if_unused_after` and `last_use`
 
@@ -465,7 +465,7 @@ Hooks:
 
 In particular, every plugin has a set of operations which are exposed to other components (i.e., cores).
 Only connected [Cores](#core) should execute operations, but this is not strictly ensured, you should check if there is a valid connection during operation elaboration.
-You can check this using `_retrieve_connections` or `_find_connection_or_fail`.
+You can check this using `retrieve_connections` or `_find_connection_or_fail`.
 
 A plugin is a state machine which follows this states:
 
@@ -1635,7 +1635,7 @@ class MyCore(Core):
         """
 
         # First retrieve all connections related to operation
-        connections = self._retrieve_connections(operation_name="save")
+        connections = self.retrieve_connections(operation_name="save")
 
         for connection in connections:
             # Ignore connection without an input

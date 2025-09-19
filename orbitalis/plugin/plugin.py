@@ -81,7 +81,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         if not self.operations[operation_name].policy.is_compatible(core_identifier):
             return False
 
-        if self.operations[operation_name].policy.maximum is None or len(self._retrieve_connections(operation_name=operation_name)) < self.operations[operation_name].policy.maximum:
+        if self.operations[operation_name].policy.maximum is None or len(self.retrieve_connections(operation_name=operation_name)) < self.operations[operation_name].policy.maximum:
             return True
 
         return False
@@ -100,14 +100,14 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
             return False
 
         # check if this plugin have already lent operation to core
-        if len(self._retrieve_connections(remote_identifier=core_identifier,
-                                          operation_name=core_needed_operation_name)) > 0:
+        if len(self.retrieve_connections(remote_identifier=core_identifier,
+                                         operation_name=core_needed_operation_name)) > 0:
             return False
 
         # check if there are slot available
         if self.operations[core_needed_operation_name].policy.maximum is not None:
             current_reserved_slot_for_operation: int = len(
-                self._retrieve_connections(operation_name=core_needed_operation_name))
+                self.retrieve_connections(operation_name=core_needed_operation_name))
 
             for core_identifier, operations in self._pending_requests.items():
                 if core_needed_operation_name in operations.keys():

@@ -65,7 +65,7 @@ class MyCore(Core):
         """
 
         # First retrieve all connections related to operation
-        connections = self._retrieve_connections(operation_name="save")
+        connections = self.retrieve_connections(operation_name="save")
 
         for connection in connections:
             # Ignore connection without an input

@@ -115,7 +115,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         constraint = copy.deepcopy(self.operation_requirements[operation_name]).constraint
 
-        for connection in self._retrieve_connections(operation_name=operation_name):
+        for connection in self.retrieve_connections(operation_name=operation_name):
 
             if constraint.mandatory is not None and connection.remote_identifier in constraint.mandatory:
                 constraint.mandatory.remove(connection.remote_identifier)
@@ -507,7 +507,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         topics: Set[str] = set()
 
-        connections = self._retrieve_connections(operation_name=operation_name)
+        connections = self.retrieve_connections(operation_name=operation_name)
 
         if plugin_identifier is not None:
 

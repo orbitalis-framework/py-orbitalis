@@ -3,9 +3,11 @@ name = "orbitalis"
 version = "0.1.0"
 authors = [
   { name="Nicola Ricciardi", email="ricciardincl@gmail.com" },
+  { name="Marco Picone" },
 ]
 description = "Event-driven micro-kernel for Python"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
