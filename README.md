@@ -33,6 +33,12 @@ In this section we will explain how to use Orbitalis. If you want to know more d
 
 Every time-based values are expressed in seconds, because `asyncio.sleep` is used.
 
+### Installation
+
+```
+pip install orbitalis
+```
+
 ### Preliminary: Busline
 
 If you know what [Busline](https://github.com/orbitalis-framework/py-busline) is, you can skip this section.
