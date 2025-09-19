@@ -1714,6 +1714,21 @@ In order to coordinate the work, please open an issue or a pull request.
 
 **Thank you** for your contributions!
 
-Author, designer and creator: Nicola Ricciardi
+
+## Authors
+
+### Nicola Ricciardi
+
+Ideator of DHCP-like protocal used by [Orbitalis](#orbitalis). Co-Designer of all [Orbitalis](#orbitalis)' protocols and components. Developer of [Orbitalis](#orbitalis)' code base.
+
+University of Modena and Reggio Emilia.
+
+
+### Marco Picone
+
+Co-Designer of [Orbitalis](#orbitalis)' main communication [protocols](#communication-protocols-more-in-deep) and components. Documentation reviewer.
+
+Associate Professor at University of Modena and Reggio Emilia.
+
 
 
