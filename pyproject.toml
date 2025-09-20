@@ -1,6 +1,6 @@
 [project]
 name = "orbitalis"
-version = "0.1.0"
+version = "1.0.0"
 authors = [
   { name="Nicola Ricciardi", email="ricciardincl@gmail.com" },
   { name="Marco Picone" },
@@ -11,8 +11,11 @@ license = "MIT"
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "busline"
 ]
 
 [project.urls]
