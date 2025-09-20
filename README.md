@@ -1725,7 +1725,7 @@ In order to coordinate the work, please open an issue or a pull request.
 
 ### Nicola Ricciardi
 
-Ideator of DHCP-like protocal used by [Orbitalis](#orbitalis). Designer of all [Orbitalis](#orbitalis)' protocols and components. Developer of [Orbitalis](#orbitalis)' code base. Documentation referent.
+Ideator of DHCP-like handshake protocol used by [Orbitalis](#orbitalis). Designer of [Orbitalis](#orbitalis)' protocols and components. Developer of [Orbitalis](#orbitalis)' code base. Documentation referent.
 
 University of Modena and Reggio Emilia.
 
