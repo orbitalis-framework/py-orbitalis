@@ -7,7 +7,6 @@ authors = [
 ]
 description = "Event-driven micro-kernel for Python"
 readme = "README.md"
-license = "MIT"
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
