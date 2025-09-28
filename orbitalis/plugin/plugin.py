@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import override, List, Optional, Any
 from dataclasses import dataclass
@@ -390,6 +391,28 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
         else:
             raise ValueError("Unexpected reply message")
+
+    async def send_result_to_all(self, connections: List[Connection], data):
+        """
+        Send data to all connections which have an output (checking `connection.has_output`)
+        """
+
+        tasks = []
+        for connection in connections:
+
+            # Only if the connection expects an output
+            # it is published in the related topic
+            if connection.has_output:
+                tasks.append(
+                    asyncio.create_task(
+                        self.eventbus_client.publish(
+                            connection.output_topic,
+                            data
+                        )
+                    )
+                )
+
+        await asyncio.gather(*tasks)  # wait publishes
 
     def __str__(self):
         return f"Plugin('{self.identifier}')"

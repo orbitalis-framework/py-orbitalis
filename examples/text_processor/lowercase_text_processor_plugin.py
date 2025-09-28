@@ -32,23 +32,7 @@ class LowercaseTextProcessorPlugin(Plugin):
             operation_name="lowercase"
         )
 
-        tasks = []
-        for connection in connections:
-
-            # Only if the connection expects an output
-            # it is published in the related topic
-            # specified by `connection.output_topic`
-            if connection.has_output:
-                tasks.append(
-                    asyncio.create_task(
-                        self.eventbus_client.publish(
-                            connection.output_topic,
-                            lowercase_text  # will be wrapped into StringMessage
-                        )
-                    )
-                )
-
-        await asyncio.gather(*tasks)    # wait publishes
+        await self.send_result_to_all(connections, lowercase_text)
 
 
 

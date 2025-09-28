@@ -177,6 +177,24 @@ Main methods:
 - `send_graceful_close_connection`: send a graceful close connection request to specified remote orbiter, therefore self side connection is not close immediately, but ACK is waited
 - `_close_self_side_connection`: close local connection with remote orbiter, therefore only this orbiter will no longer be able to use connection. Generally, a close connection request was sent before this method call.
 
+```mermaid
+flowchart TD
+    n2["_on_starting()"] --> n3["_internal_start()"]
+    n3 --> n4["_on_started()"]
+    n13["Orbiter Activity"] -- stop() --> n16["_on_stopping()"]
+    n14["Start Orbiter"] -- start() --> n2
+    n16 --> n17["_internal_stop()"]
+    n17 --> n18["_on_stopped()"]
+    n18 --> n15["Orbiter Stopped"]
+    s1["Orbiter Loop"] --> n15
+    n4 -- start_loop() --> s1
+    n3 --> n13
+    n14@{ shape: rect}
+    style n13 fill:#BBDEFB
+    style n14 fill:#BBDEFB
+    style n15 fill:#BBDEFB
+    style s1 fill:#BBDEFB
+```
 
 #### Loop
 
@@ -199,6 +217,42 @@ Hooks:
 - `_on_new_loop_iteration`: called before every loop iteration
 - `_on_loop_iteration_end`: called at the end of every loop iteration
 - `_on_loop_iteration`: called during every loop iteration
+
+```mermaid
+flowchart TD
+ subgraph s1["Orbiter Loop"]
+        n6["_on_loop_start()"]
+        n7["_on_new_loop_iteration()"]
+        n8["_on_loop_iteration()"]
+        n9["close_unused_connections()"]
+        n10["discard_expired_pending_requests()"]
+        n11["force_close_connection_for_out_to_timeout_pending_graceful_close_connection()"]
+        n12["send_keepalive_based_on_connections_and_threshold()"]
+  end
+    n6 --> n7
+    n7 --> n8
+    n8 --> n9
+    n9 --> n10
+    n10 --> n11
+    n11 --> n12
+    n12 --> n7
+    n2["_on_starting()"] --> n3["_internal_start()"]
+    n3 --> n4["_on_started()"]
+    n4 --> n13["Orbiter Activity"]
+    n13 -- stop() --> n16["_on_stopping()"]
+    n14["Start Orbiter"] -- start() --> n2
+    n16 --> n17["_internal_stop()"]
+    n17 --> n18["_on_stopped()"]
+    n18 --> n15["Orbiter Stopped"]
+    s1 --> n15
+    n3 -- start_loop() --> s1
+
+    n14@{ shape: rect}
+    style n13 fill:#BBDEFB
+    style n14 fill:#BBDEFB
+    style n15 fill:#BBDEFB
+    style s1 fill:#BBDEFB
+```
 
 
 ### Introduction to Core-Plugin Communication
@@ -500,7 +554,7 @@ Main methods:
 - `send_offer`: send a new offer message in given topic to given core identifier (it should be used only if you want to send an offer message manually)
 - `with_operation`: generally used during creation, allows you to specify additional operations (but generally we use decorator)
 - `with_custom_policy`: generally used during creation, allows you to specify a custom operation policy
-
+- `send_result_to_all`: send operation result to all connections which have an output topic
 
 #### Operations
 
@@ -1320,6 +1374,52 @@ sequenceDiagram
 ```
 
 In the following chapters we will discuss more in deep all steps.
+
+Below we report the same previous diagram adding **hooks**.
+
+```mermaid
+sequenceDiagram
+    Core->>Core: send_discover_based_on_requirements()
+    Core->>Core: _on_send_discover()
+    Core->>Plugin: Discover
+    Plugin->>Plugin: _on_new_discover()
+    Plugin->>Plugin: Update acquaintances
+    Plugin->>Plugin: New pending requests
+    Plugin->>Plugin: send_offer()
+    Plugin->>Plugin: _on_send_offer()
+    Plugin->>Core: Offer
+    Core->>Core: _on_new_offer()
+    Core->>Core: Update acquaintances
+    par Reply for each offered operation
+        alt is still needed
+            Core->>Core: New pending request
+            Core->>Plugin: Request
+            Plugin->>Plugin: _on_request()
+        else not needed anymore
+            Core->>Plugin: Reject
+            Plugin->>Plugin: _on_reject()
+            Plugin->>Plugin: Remove pending request
+        end
+    end
+    par Response for each requested operation
+        alt is still available
+            Plugin->>Plugin: Promote pending request to connection
+            Plugin->>Plugin: _on_promote_pending_request_to_connection()
+            Plugin->>Core: Confirm
+            Core->>Core: _on_response()
+            Core->>Core: _on_confirm_connection()
+            Core->>Core: Promote pending request to connection
+            Core->>Core: _on_promote_pending_request_to_connection()
+
+        else operation no longer available
+            Plugin->>Plugin: Remove pending request
+            Plugin->>Core: OperationNoLongerAvailable
+            Core->>Core: _on_response()
+            Core->>Core: _on_operation_no_longer_available()
+            Core->>Core: Remove pending request
+        end
+    end
+```
 
 ##### Discover
 
