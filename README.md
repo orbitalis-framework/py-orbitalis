@@ -412,22 +412,22 @@ You can manage them using following methods:
 
 An [orbiter](#orbiter) (Core or Plugin) can close a connection in every moment. There are two ways to close a connection: *Graceless* or *Graceful*.
 
-In the following example we suppose an orbiter `"my_orbiter1"` that closes connection with another orbiter `"my_orbiter2"` related to operation `"my_operation"`.
+In the following example we suppose an orbiter `"my_orbiterA"` that closes connection with another orbiter `"my_orbiterB"` related to operation `"my_operation"`.
 
 In **Graceless** procedure the orbiter sends a `GracelessCloneConnectionMessage` to remote one and close connection immediately:
 
 ```mermaid
 sequenceDiagram
-    Orbiter 1->>Orbiter 1: Close connection
-    Orbiter 1->>Orbiter 2: Graceless close connection
-    Orbiter 2->>Orbiter 2: Close connection
+    Orbiter A->>Orbiter A: Close connection
+    Orbiter A->>Orbiter B: Graceless close connection
+    Orbiter B->>Orbiter B: Close connection
 ```
 
 ```python
-# `orbiter1` close connection immediately 
-# with "my_orbiter2" related to operation "my_operation"
-orbiter1.send_graceless_close_connection(
-    remote_identifier="my_orbiter2",
+# `orbiterA` close connection immediately 
+# with "my_orbiterB" related to operation "my_operation"
+orbiterA.send_graceless_close_connection(
+    remote_identifier="my_orbiterB",
     operation_name="my_operation"
 )
 ```
@@ -437,20 +437,20 @@ You can force timeout check using `force_close_connection_for_out_to_timeout_pen
 
 ```mermaid
 sequenceDiagram
-    Orbiter 1->>Orbiter 2: Graceful close connection
-    activate Orbiter 1
-    Orbiter 2->>Orbiter 2: Some operations
-    Orbiter 2->>Orbiter 2: Close connection
-    Orbiter 2->>Orbiter 1: Close connection ACK
-    deactivate Orbiter 1
-    Orbiter 1->>Orbiter 1: Close connection
+    Orbiter A->>Orbiter B: Graceful close connection
+    activate Orbiter A
+    Orbiter B->>Orbiter B: Some operations
+    Orbiter B->>Orbiter B: Close connection
+    Orbiter B->>Orbiter A: Close connection ACK
+    deactivate Orbiter A
+    Orbiter A->>Orbiter A: Close connection
 ```
 
 ```python
-# `orbiter1` close connection gracefully 
-# with "my_orbiter2" related to operation "my_operation"
-orbiter1.send_graceful_close_connection(
-    remote_identifier="my_orbiter2",
+# `orbiterA` close connection gracefully 
+# with "my_orbiterB" related to operation "my_operation"
+orbiterA.send_graceful_close_connection(
+    remote_identifier="my_orbiterB",
     operation_name="my_operation"
 )
 ```
@@ -461,8 +461,8 @@ Both during graceful or graceless method call, you can provide data (`bytes`) wh
 For example, considering graceful procedure:
 
 ```python
-orbiter1.send_graceful_close_connection(
-    remote_identifier="my_orbiter2",    # identifier of orbiter related to connection to close
+orbiterA.send_graceful_close_connection(
+    remote_identifier="my_orbiterB",    # identifier of orbiter related to connection to close
     operation_name="my_operation",
     data=bytes(...)     # serialize your data
 )
@@ -485,8 +485,8 @@ An orbiter can _request_ a keepalive using `send_keepalive_request` method, whic
 
 ```mermaid
 sequenceDiagram
-    Orbiter 1->>Orbiter 2: Keepalive request
-    Orbiter 2->>Orbiter 1: Keepalive
+    Orbiter A->>Orbiter B: Keepalive request
+    Orbiter B->>Orbiter A: Keepalive
 ```
 
 Keepalive are sent using `KeepaliveMessage` messages. You can manually send a keepalive using `send_keepalive` method.
