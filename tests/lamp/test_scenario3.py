@@ -91,4 +91,5 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.lamp_y_plugin.is_off, "'lamp_y_plugin' is on, but message was incompatible")     # because no message was used during execute, which is compatible
 
 
-
+if __name__ == "__main__":
+    unittest.main()

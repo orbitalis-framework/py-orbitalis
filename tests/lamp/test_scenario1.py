@@ -258,3 +258,5 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.lamp_x_plugin.identifier not in self.smart_home1.lamp_status)
 
 
+if __name__ == "__main__":
+    unittest.main()

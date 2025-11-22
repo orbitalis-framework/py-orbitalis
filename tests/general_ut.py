@@ -8,8 +8,8 @@ from orbitalis.core.requirement import Constraint, OperationRequirement
 from orbitalis.orbiter.schemaspec import SchemaSpec, Input, Output
 from orbitalis.plugin.operation import Policy
 from tests.lamp.smarthome_core import SmartHomeCore
-from tests.lamp.plugin import LampXPlugin
-from tests.lamp.plugin import LampYPlugin, TurnOnLampYMessage, TurnOffLampYMessage
+from tests.lamp.plugin.lamp_x_plugin import LampXPlugin
+from tests.lamp.plugin.lamp_y_plugin import LampYPlugin, TurnOnLampYMessage, TurnOffLampYMessage
 from tests.utils import build_new_local_client
 
 
@@ -198,3 +198,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         seen3 = self.smart_home._last_seen[self.lamp_x_plugin.identifier]
 
         self.assertGreater(seen3, seen2)
+
+
+if __name__ == "__main__":
+    unittest.main()
