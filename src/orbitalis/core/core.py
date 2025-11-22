@@ -35,12 +35,17 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     discovering_interval: float = field(default=2)
     operation_requirements: Dict[str, OperationRequirement] = field(default_factory=dict)    # operation_name => OperationRequirement
 
+    compliant_event: asyncio.Event = field(default_factory=asyncio.Event, init=False)
+    not_compliant_event: asyncio.Event = field(default_factory=asyncio.Event, init=False)
+
     _last_discover_sent_at: Optional[datetime] = field(default=None)
 
     def __post_init__(self):
         super().__post_init__()
 
         self.state = CoreState.CREATED
+        self.compliant_event.clear()
+        self.not_compliant_event.set()
 
     @classmethod
     def _is_plugin_operation_required_by_constraint(cls, constraint: Constraint) -> bool:
@@ -153,6 +158,30 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 return False
 
         return True
+    
+    def switch_to_compliant(self):
+        """
+        Force core to compliant state
+        """
+
+        self.state = CoreState.COMPLIANT
+        self._on_compliant()
+        self.compliant_event.set()
+        self.not_compliant_event.clear()
+
+    def switch_to_not_compliant(self):
+        """
+        Force core to not compliant state
+        """
+
+        self.state = CoreState.NOT_COMPLIANT
+        self._on_not_compliant()
+        self.compliant_event.clear()
+        self.not_compliant_event.set()
+
+    def reset_compliance_events(self):
+        self.compliant_event.clear()
+        self.not_compliant_event.clear()
 
     def update_compliant(self):
         """
@@ -162,26 +191,21 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         if self.state == CoreState.CREATED:
 
             if self.is_compliant():
-                self.state = CoreState.COMPLIANT
-                self._on_compliant()
+                self.switch_to_compliant()
                 return
 
             else:
-                self.state = CoreState.NOT_COMPLIANT
-                self._on_not_compliant()
+                self.switch_to_not_compliant()
                 return
 
         before_was_compliance = self.state == CoreState.COMPLIANT
         now_is_compliance = self.is_compliant()
 
         if before_was_compliance and not now_is_compliance:
-            self._on_not_compliant()
-            self.state = CoreState.NOT_COMPLIANT
+            self.switch_to_not_compliant()
 
         elif not before_was_compliance and now_is_compliance:
-            self._on_compliant()
-            self.state = CoreState.COMPLIANT
-
+            self.switch_to_compliant()
 
     def _operation_to_discover(self) -> Dict[str, Constraint]:
         """
@@ -479,23 +503,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         self.update_compliant()
 
-
-    def __check_compatibility_connection_payload(self, connection: Connection, message: Optional[AvroMessageMixin]) -> bool:
-        if not connection.input.has_input:
-            return False
-
-        if message is None:
-            if connection.input.support_empty_schema:
-                return True
-            else:
-                return False
-
-        if connection.input.is_compatible_with_schema(message.avro_schema()):
-            return True
-
-        return False
-
-    async def distributed_execute(self, operation_name: str, data: List[Optional[AvroMessageMixin]]) -> Set[str]:
+    async def execute_distributed(self, operation_name: str, data: List[Optional[AvroMessageMixin]]) -> Set[str]:
         """
         Execute the operation by its name, distributing provided data among all compatible plugins.
         All data messages must be of the same type.
@@ -513,7 +521,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         connections = self.retrieve_connections(
             operation_name=operation_name,
-            input=Input.empty() if message_type is None else Input.from_message(message_type)
+            input=Input.empty() if message_type is type(None) else Input.from_message(message_type)
         )
 
         plugin_identifiers: Set[str] = set()
@@ -535,7 +543,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return plugin_identifiers
 
-    async def execute_sending_all(self, operation_name: str, data: Optional[AvroMessageMixin]) -> Set[str]:
+    async def execute_sending_all(self, operation_name: str, data: Optional[AvroMessageMixin] = None) -> Set[str]:
         """
         Execute the operation by its name, sending provided data to all compatible plugins.
 
@@ -561,7 +569,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return plugin_identifiers
     
-    async def execute_sending_any(self, operation_name: str, data: Optional[AvroMessageMixin]) -> str:
+    async def execute_sending_any(self, operation_name: str, data: Optional[AvroMessageMixin] = None) -> str:
         """
         Execute the operation by its name, sending provided data to only one random compatible plugin.
 
@@ -582,7 +590,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return connection.remote_identifier
 
-    async def execute_using_plugin(self, operation_name: str, data: Optional[AvroMessageMixin], plugin_identifier: str):
+    async def execute_using_plugin(self, operation_name: str, plugin_identifier: str, data: Optional[AvroMessageMixin] = None):
         """
         Execute the operation by its name, sending provided data to only one specific plugin.
 
@@ -628,7 +636,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         messages: List[Optional[AvroMessageMixin]] = data if isinstance(data, list) else [data]
 
         if distribute is not None and distribute:
-            return await self.distributed_execute(operation_name=operation_name, data=messages)
+            return await self.execute_distributed(operation_name=operation_name, data=messages)
 
         if plugin_identifier is not None:
             for message in messages:

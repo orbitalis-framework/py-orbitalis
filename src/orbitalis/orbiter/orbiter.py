@@ -53,6 +53,8 @@ class Orbiter(ABC):
 
     with_loop: bool = field(default=True)
 
+    new_connection_added_event: asyncio.Event = field(default_factory=asyncio.Event, init=False)
+
     _others_considers_me_dead_after: Dict[str, float] = field(default_factory=dict, init=False)     # remote_identifier => time
     _remote_keepalive_request_topics: Dict[str, str] = field(default_factory=dict, init=False)   # remote_identifier => keepalive_request_topic
     _remote_keepalive_topics: Dict[str, str] = field(default_factory=dict, init=False)   # remote_identifier => keepalive_topic
@@ -70,6 +72,8 @@ class Orbiter(ABC):
     def __post_init__(self):
         if 0 > self.send_keepalive_before_timelimit:
             raise ValueError("send_keepalive_before_timelimit must be >= 0")
+        
+        self.new_connection_added_event.clear()
 
     @property
     def keepalive_request_topic(self) -> str:
@@ -222,7 +226,9 @@ class Orbiter(ABC):
         return self._connections[remote_identifier]
 
     def _add_connection(self, connection: Connection):
+        self.new_connection_added_event.clear()
         self._connections[connection.remote_identifier][connection.operation_name] = connection
+        self.new_connection_added_event.set()
 
     def _remove_connection(self, connection: Connection) -> Optional[Connection]:
         if connection.remote_identifier in self._connections:

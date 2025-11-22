@@ -66,7 +66,7 @@ class TestPlugin(unittest.IsolatedAsyncioTestCase):
         )
 
 
-    async def test_all_any_execute(self):
+    async def test_all_execute(self):
         self.assertTrue(self.smart_home1.is_compliant())   # already compliance, but can plug plugins
 
         await self.lamp_x_plugin.start()

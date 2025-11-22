@@ -140,6 +140,8 @@ Main public attributes:
 - `consider_others_dead_after` states how many seconds can pass before that a remote orbiter is considered dead if no keepalive arrives
 - `send_keepalive_before_timelimit` states how many seconds before a keepalive message is sent that other remote orbiter considers current orbiter dead
 - `graceful_close_timeout`: states how many seconds a graceful close connection can be pending
+- `new_connection_added_event`: notify you when a new connection is created
+- `remote_identifiers`: return all remote connected orbiter identifiers
 
 Main hooks:
 
@@ -1072,6 +1074,7 @@ Main public attributes:
 - `discovering_interval`: interval between two discover messages (only when loop is enabled)
 - `operation_requirements`: specifies which operations are needed to be compliant, specifying their constraints and optionally the default setup data or the sink
 - `operation_sinks` (see [sinks](#sinks))
+- `compliant_event` and `not_compliant_event`: notify you in related state switching
 
 Main hooks:
 
@@ -1091,8 +1094,6 @@ Main methods:
 - `is_compliance`: evaluate at run-time if core is global compliant based on its configuration. It may be a very time-consuming operation
 - `update_compliant`: use `is_compliant` to update core's state
 - `_operation_to_discover`: returns a dictionary `operation_name` => `not_satisfied_need`, based on current connections. This operations should be discover
-- `execute`: execute the operation by its name, sending provided data. You must specify which plugin must be used, otherwise `ValueError` is raised.
-- `sudo_execute`: bypass all checks and send data to topic
 
 ```python
 # Create a custom core
@@ -1301,6 +1302,7 @@ Then, given the set of all potentially connections, core sends data to topics ch
 - `all` sends data to all plugins related to retrieved connections
 - `any` sends data to a random plugin related to retrieved connections
 - `plugin_identifier` sends data to specified plugin
+- `distributed` splits execution on pool of compatible plugins
 
 For example, suppose you want to execute `"plugin_operation"` of plugin `"plugin_identifier"`, sending an empty event (i.e., no data):
 
@@ -1308,6 +1310,13 @@ For example, suppose you want to execute `"plugin_operation"` of plugin `"plugin
 await self.my_core.execute("plugin_operation", plugin_identifier="plugin_identifier")
 #                           ^^^^^^^^^^^^^^^^ operation's name
 ```
+
+If you know a priori how to execute an operation, you can exploit direct methods:
+
+- `execute_using_plugin`
+- `execute_sending_any`
+- `execute_sending_all`
+- `execute_distributed`
 
 
 ##### Sudo execute
@@ -1325,6 +1334,217 @@ my_core.sudo_execute(
 > We provide `sudo_execute` method because Orbitalis framework works in secure and managed environment, therefore we think a developer can execute arbitrary operations, even if we advice against to use `sudo_execute`. 
 
 
+
+### Simple example
+
+Let's consider following core and plugin in a scenario in which we want to turn on lamps.
+
+```py
+@dataclass
+class LampXPlugin(LampPlugin):
+    """
+    Specific plugin related to brand X of smart lamps.
+    This type of lamps doesn't have additional features
+    """
+
+    @operation(     # add new operation with name: "turn_on"
+        name="turn_on",
+        input=Input.empty()     # accepts empty events
+    )
+    async def turn_on_event_handler(self, topic: str, event: Event):
+        self.turn_on()
+
+    @operation(     # add new operation with name: "turn_off"
+        name="turn_off",
+        input=Input.empty()     # accepts empty events
+    )
+    async def turn_off_event_handler(self, topic: str, event: Event):
+        self.turn_off()
+```
+
+```py
+@dataclass
+class SmartHomeCore(Core):
+
+    lamp_status: Dict[str, str] = field(default_factory=dict)
+
+    @sink(
+        operation_name="get_status"
+    )
+    async def get_status_sink(self, topic: str, event: Event[StatusMessage]):
+        self.lamp_status[event.payload.lamp_identifier] = event.payload.status
+```
+
+You should follow this:
+
+1. Inizialize orbiters
+2. Start components
+3. Await discovery process
+4. Execute operations
+
+
+#### Initialization
+
+```py
+async def main():
+
+    # Eventually setup logging if you need
+    # import logging
+    # logging.basicConfig(level=logging.INFO)
+
+    # Initialize core
+    smart_home = SmartHomeCore(
+        identifier="smart_home",
+        eventbus_client=build_new_local_client(),
+        raise_exceptions=True,
+        with_loop=False,
+        operation_requirements={
+            "turn_on": OperationRequirement(Constraint(
+                minimum=1,
+                inputs=[Input.empty()],
+                outputs=[Output.no_output()]
+            )),
+            "turn_off": OperationRequirement(
+                Constraint(
+                    minimum=1,
+                    inputs=[Input.empty()],
+                    outputs=[Output.no_output()]
+                )
+            ),
+            "get_status": OperationRequirement(
+                Constraint(
+                    minimum=1,
+                    inputs=[Input.empty()],
+                    outputs=[Output.from_schema(StatusMessage.avro_schema())]
+                )
+            )
+        }
+    )
+
+    # Initialize plugins
+    plugin1 = LampXPlugin(
+        identifier="plugin1",
+        eventbus_client=build_new_local_client(),
+        raise_exceptions=True,
+        with_loop=False,
+
+        kw=24      # LampPlugin-specific attribute
+    )
+
+    plugin2 = LampXPlugin(
+        identifier="plugin2",
+        eventbus_client=build_new_local_client(),
+        raise_exceptions=True,
+        with_loop=False,
+
+        kw=42      # LampPlugin-specific attribute
+    )
+
+    # 2. Start components
+    # 3. Await discovery process
+    # 4. Execute operations
+```
+
+> [!NOTE]
+> We set `with_loop=False` on core, therefore plugins **must** be started before.
+
+
+#### Start components
+
+```py
+async def main():
+    # 1. Inizialize orbiters
+
+    # Start plugins (before core due to `with_loop=False`)
+    await plugin1.start()
+    await plugin2.start()
+
+    # ...now plugins are ready to accept new connections (based on their configuration)
+
+
+    # Start core, this starts discovery process 
+    await self.smart_home.start()
+
+
+    # 3. Await discovery process
+    # 4. Execute operations
+```
+
+#### Await discovery process
+
+There are a lot of ways to await discovery process:
+
+- `await asyncio.sleep(t)`: simplest, but increases await time eventually
+- `await my_core.compliant_event.wait()`: the best if you are interest in core's compliant
+- `await self.smart_home.new_connection_added_event.wait()`: the best if you know number of plugins a priori and you want to await all of them
+
+In this example we know example how many plugins we have, i.e. 2, therefore we await exactly 2 connection creations.
+
+```py
+async def main():
+    # 1. Inizialize orbiters
+    # 2. Start components
+
+
+    await self.smart_home.new_connection_added_event.wait()
+
+    await self.smart_home.new_connection_added_event.wait()
+
+
+    # 4. Execute operations
+```
+
+#### Execute operations
+
+Now we can execute operations. We have several modes:
+
+- Execute operation `turn_on` on plugin `plugin1`
+
+```py
+await self.smart_home.execute_using_plugin(
+    operation_name="turn_on",
+    plugin_identifier="plugin1"
+)
+
+assert plugin1.is_on
+assert plugin2.is_off
+```
+
+- Execute operation `turn_on` using one random plugin among available and compatible ones
+
+```py
+plugin_identifier = await self.smart_home.execute_sending_any(operation_name="turn_on")
+
+assert plugin_identifier == plugin1.identifier or plugin_identifier == plugin2.identifier
+
+assert plugin1.is_on or plugin2.is_on
+
+assert not (plugin1.is_on and plugin2.is_on)
+```
+
+- Execute operation `turn_on` on *all* available and compatible plugins
+
+```py
+plugin_identifiers = await self.smart_home.execute_sending_all(operation_name="turn_on")
+
+assert plugin1.is_on and plugin2.is_on
+```
+
+- Execute operation `turn_on` splitting execution among all available and compatible plugins, if total amount of plugins is less then needed one, a plugin will execute operation more than one times
+
+```py
+plugin_identifiers = await self.smart_home.execute_distributed(
+    operation_name="turn_on",
+    data=[None, None, None, None]
+)
+
+assert plugin1.is_on and plugin2.is_on
+
+# in this case both plugins execute operation two times
+```
+
+> [!NOTE]
+> "all" and "distributed" modes could be confused. "all" execute a given operation with a given message on *all* (available and compatible) plugins. Instead, in "distributed" more, every message of a given operation is sent only one time. 
 
 
 
