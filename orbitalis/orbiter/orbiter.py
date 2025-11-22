@@ -111,6 +111,15 @@ class Orbiter(ABC):
                 dead.append(remote_identifier)
 
         return dead
+    
+    @property
+    def remote_identifiers(self) -> Set[str]:
+        identifiers: Set[str] = set()
+
+        for connection in self._all_connections:
+            identifiers.add(connection.remote_identifier)
+
+        return identifiers
 
 
     async def _get_on_close_data(self, remote_identifier: str, operation_name: str) -> Optional[bytes]:

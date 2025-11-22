@@ -4,7 +4,7 @@ import random
 from datetime import datetime, timedelta
 import logging
 from dataclasses import dataclass, field
-from typing import override, Dict, Set, Optional, List
+from typing import Type, override, Dict, Set, Optional, List
 from busline.client.subscriber.event_handler import event_handler
 from busline.client.subscriber.event_handler.event_handler import EventHandler
 from busline.event.message.avro_message import AvroMessageMixin
@@ -20,6 +20,7 @@ from orbitalis.events.response import ConfirmConnectionMessage, OperationNoLonge
 from orbitalis.orbiter.connection import Connection
 from orbitalis.orbiter.orbiter import Orbiter
 from orbitalis.orbiter.pending_request import PendingRequest
+from orbitalis.orbiter.schemaspec import Input
 from orbitalis.state_machine.state_machine import StateMachine
 
 
@@ -494,45 +495,166 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         return False
 
-    async def execute(self, operation_name: str, data: Optional[AvroMessageMixin] = None,
-                      *, any: bool = False, all: bool = False, plugin_identifier: Optional[str] = None) -> int:
+    async def distributed_execute(self, operation_name: str, data: List[Optional[AvroMessageMixin]]) -> Set[str]:
+        """
+        Execute the operation by its name, distributing provided data among all compatible plugins.
+        All data messages must be of the same type.
+
+        Return the plugin identifiers the data has been sent to.
+        """
+
+        if len(data) == 0:
+            return set()
+        
+        message_type: Type[AvroMessageMixin] | Type[None] = type(data[0])
+        for index in range(1, len(data)):
+            if not isinstance(data[index], message_type):
+                raise ValueError("all data messages must be of the same type")
+
+        connections = self.retrieve_connections(
+            operation_name=operation_name,
+            input=Input.empty() if message_type is None else Input.from_message(message_type)
+        )
+
+        plugin_identifiers: Set[str] = set()
+        publishes = []
+        connection_index = 0
+
+        for message in data:
+            connection = connections[connection_index % len(connections)]
+            connection_index += 1
+
+            publishes.append(self.eventbus_client.publish(
+                connection.input_topic,
+                message
+            ))
+
+            plugin_identifiers.add(connection.remote_identifier)
+
+        await asyncio.gather(*publishes)
+
+        return plugin_identifiers
+
+    async def execute_sending_all(self, operation_name: str, data: Optional[AvroMessageMixin]) -> Set[str]:
+        """
+        Execute the operation by its name, sending provided data to all compatible plugins.
+
+        Return the plugin identifiers the data has been sent to.
+        """
+
+        connections = self.retrieve_connections(
+            operation_name=operation_name,
+            input=Input.empty() if data is None else Input.from_message(type(data))
+        )
+
+        plugin_identifiers: Set[str] = set()
+        publishes = []
+        for connection in connections:
+            plugin_identifiers.add(connection.remote_identifier)
+            
+            publishes.append(self.eventbus_client.publish(
+                connection.input_topic,
+                data
+            ))
+
+        await asyncio.gather(*publishes)
+
+        return plugin_identifiers
+    
+    async def execute_sending_any(self, operation_name: str, data: Optional[AvroMessageMixin]) -> str:
+        """
+        Execute the operation by its name, sending provided data to only one random compatible plugin.
+
+        Return the plugin identifier the data has been sent to.
+        """
+
+        connections = self.retrieve_connections(
+            operation_name=operation_name,
+            input=Input.empty() if data is None else Input.from_message(type(data))
+        )
+
+        connection = random.choice(connections)
+
+        await self.eventbus_client.publish(
+            connection.input_topic,
+            data
+        )
+
+        return connection.remote_identifier
+
+    async def execute_using_plugin(self, operation_name: str, data: Optional[AvroMessageMixin], plugin_identifier: str):
+        """
+        Execute the operation by its name, sending provided data to only one specific plugin.
+
+        Return True if data has been sent, False otherwise.
+        """
+
+        connections = self.retrieve_connections(
+            operation_name=operation_name,
+            remote_identifier=plugin_identifier,
+            input=Input.empty() if data is None else Input.from_message(type(data))
+        )
+
+        if len(connections) == 0:
+            return False
+
+        if len(connections) > 1:
+            raise ValueError(f"multiple connections found for operation {operation_name} and plugin {plugin_identifier}")
+
+        for connection in connections:
+            if connection.remote_identifier != plugin_identifier:
+                continue
+
+            await self.eventbus_client.publish(
+                connection.input_topic,
+                data
+            )
+
+            return True
+
+        return False
+
+    async def execute(self, operation_name: str, data: Optional[AvroMessageMixin] | List[Optional[AvroMessageMixin]] = None,
+                      *, any: Optional[bool] = None, all: Optional[bool] = None, plugin_identifier: Optional[str] = None, distribute: Optional[bool] = None) -> Set[str]:
         """
         Execute the operation by its name, sending provided data.
 
-        You must specify which plugin must be used, otherwise ValueError is raised.
+        Return the plugin identifiers the data has been sent to.
         """
 
-        if int(any) + int(all) + int(plugin_identifier is not None) > 1:
-            raise ValueError("You must chose only one between 'any', 'all' or 'plugin_identifier'")
+        if any is None and all is None and plugin_identifier is None and distribute is None:
+            raise ValueError("mode (any/all/identifier/distribute) must be specified")
 
-        topics: Set[str] = set()
+        messages: List[Optional[AvroMessageMixin]] = data if isinstance(data, list) else [data]
 
-        connections = self.retrieve_connections(operation_name=operation_name)
+        if distribute is not None and distribute:
+            return await self.distributed_execute(operation_name=operation_name, data=messages)
 
         if plugin_identifier is not None:
+            for message in messages:
+                sent = await self.execute_using_plugin(operation_name=operation_name, data=message, plugin_identifier=plugin_identifier)
+                if not sent:
+                    raise ValueError(f"can not send data to plugin {plugin_identifier} for operation {operation_name}")
 
-            for connection in connections:
-                if connection.remote_identifier != plugin_identifier:
-                    continue
+            return {plugin_identifier}
+        
+        if any is not None and any:
+            plugin_identifiers: Set[str] = set()
+            for message in messages:
+                plugin_id = await self.execute_sending_any(operation_name=operation_name, data=message)
+                plugin_identifiers.add(plugin_id)
 
-                if self.__check_compatibility_connection_payload(connection, data):
-                    topics.add(connection.input_topic)
+            return plugin_identifiers
+        
+        if all is not None and all:
+            plugin_identifiers: Set[str] = set()
+            for message in messages:
+                sent_plugin_ids = await self.execute_sending_all(operation_name=operation_name, data=message)
+                plugin_identifiers.update(sent_plugin_ids)
 
-        elif all or any:
-            for connection in connections:
-                if self.__check_compatibility_connection_payload(connection, data):
-                    topics.add(connection.input_topic)
-
-            if any and len(topics) > 0:
-                topics = { random.choice(list(topics)) }
-
-        else:
-            raise ValueError("mode (any/all/identifier) must be specified")
-
-
-        await self.eventbus_client.multi_publish(list(topics), data)
-
-        return len(topics)
+            return plugin_identifiers
+        
+        raise ValueError("invalid mode specified")
 
     async def sudo_execute(self, topic: str, data: Optional[AvroMessageMixin] = None):
         """

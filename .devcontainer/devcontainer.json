@@ -1,0 +1,16 @@
+{
+    "name": "Orbitalis Dev",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": ".."
+    },
+    "runArgs": [
+        "--security-opt", "label=disable"
+    ],
+    "mounts": [
+    ],
+    "workspaceFolder": "/workspace",
+    "workspaceMount": "source=.,target=/workspace,type=bind",
+    "remoteUser": "vscode",
+    "postStartCommand": "mosquitto -d"
+}
