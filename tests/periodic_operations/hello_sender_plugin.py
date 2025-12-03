@@ -56,7 +56,7 @@ class HelloSenderPlugin(Plugin):
             await self.__send_hello()
 
     async def __send_hello(self):
-        connections = await self._retrieve_and_touch_connections(operation_name="hello")  # retrieve current core connections
+        connections = await self.retrieve_and_touch_connections(operation_name="hello")  # retrieve current core connections
 
         tasks = []
         for connection in connections:

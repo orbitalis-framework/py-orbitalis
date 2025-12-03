@@ -19,5 +19,5 @@ class StateMachine(Generic[S], ABC):
 
     @state.setter
     def state(self, s: S):
-        logging.info(f"{self}: {self.__state.name if self.__state is not None else 'None'} --> {s.name}")
+        logging.info("%s: %s --> %s", self, self.__state.name if self.__state is not None else 'None', s.name)
         self.__state = s

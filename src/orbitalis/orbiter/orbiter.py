@@ -135,12 +135,11 @@ class Orbiter(ABC):
 
 
     async def start(self, *args, **kwargs):
-        logging.info(f"{self}: starting...")
+        logging.info("%s: starting...", self)
         await self._on_starting(*args, **kwargs)
         await self._internal_start(*args, **kwargs)
         await self._on_started(*args, **kwargs)
-        logging.info(f"{self}: started")
-
+        logging.info("%s: started", self)
 
     async def _on_starting(self, *args, **kwargs):
         """
@@ -174,12 +173,11 @@ class Orbiter(ABC):
         """
 
     async def stop(self, *args, **kwargs):
-        logging.info(f"{self}: stopping...")
+        logging.info("%s: stopping...", self)
         await self._on_stopping(*args, **kwargs)
         await self._internal_stop(*args, **kwargs)
         await self._on_stopped(*args, **kwargs)
-        logging.info(f"{self}: stopped")
-
+        logging.info("%s: stopped", self)
 
     async def _on_stopping(self, *args, **kwargs):
         """
@@ -312,7 +310,7 @@ class Orbiter(ABC):
 
         return connections[0]
 
-    async def _retrieve_and_touch_connections(self, operation_name: str, *, input_topic: Optional[str] = None) -> List[Connection]:
+    async def retrieve_and_touch_connections(self, operation_name: str, *, input_topic: Optional[str] = None) -> List[Connection]:
         """
         Retrieve connections based on operation's name and input topic, then *lock* and touch connections.
         Finally, connections are returned.
@@ -347,7 +345,7 @@ class Orbiter(ABC):
             self._remove_pending_request(pending_request)
 
         except Exception as e:
-            logging.error(f"{self}: {repr(e)}")
+            logging.error("%s: %s", self, repr(e))
 
             if self.raise_exceptions:
                 raise e
@@ -378,7 +376,7 @@ class Orbiter(ABC):
                     self._remove_pending_request(pending_request)
                     discarded += 1
                 except Exception as e:
-                    logging.warning(f"{self}: pending request {pending_request} was removed before discarding")
+                    logging.warning("%s: pending request %s was removed before discarding", self, pending_request)
 
         return discarded
 
@@ -418,7 +416,7 @@ class Orbiter(ABC):
             return closed
 
         except Exception as e:
-            logging.error(f"{self}: {repr(e)}")
+            logging.error("%s: %s", self, repr(e))
 
             if self.raise_exceptions:
                 raise e
@@ -460,7 +458,7 @@ class Orbiter(ABC):
             return closed
 
         except Exception as e:
-            logging.error(f"{self}: {repr(e)}")
+            logging.error("%s: %s", self, repr(e))
 
             if self.raise_exceptions:
                 raise e
@@ -507,7 +505,7 @@ class Orbiter(ABC):
                 KeepaliveMessage(from_identifier=self.identifier)
             )
         except Exception as e:
-            logging.error(f"{self}: {repr(e)}")
+            logging.error("%s: %s", self, repr(e))
 
             if self.raise_exceptions:
                 raise e
@@ -577,11 +575,11 @@ class Orbiter(ABC):
 
         for remote_identifier in self._connections.keys():
             if remote_identifier not in self._others_considers_me_dead_after:
-                logging.error(f"{self}: no dead time associated to {remote_identifier}, keepalive sending skipped")
+                logging.error("%s: no dead time associated to %s, keepalive sending skipped", self, remote_identifier)
                 continue
 
             if remote_identifier not in self._last_keepalive_sent:
-                logging.debug(f"{self}: not previous keepalive sent to {remote_identifier}")
+                logging.debug("%s: not previous keepalive sent to %s", self, remote_identifier)
                 tasks.append(
                     asyncio.create_task(
                         self.send_keepalive(remote_identifier)
@@ -593,7 +591,7 @@ class Orbiter(ABC):
                 seconds=self._others_considers_me_dead_after[remote_identifier])
 
             if (considered_dead_at - datetime.now()).seconds < 0:
-                logging.warning(f"{self}: {remote_identifier} could be flag me as dead, anyway keepalive will be sent")
+                logging.warning("%s: %s could be flag me as dead, anyway keepalive will be sent", self, remote_identifier)
 
             assert 0 <= self.send_keepalive_before_timelimit, "send_keepalive_threshold_multiplier must be >= 0"
 
@@ -635,7 +633,7 @@ class Orbiter(ABC):
             )
 
         except Exception as e:
-            logging.error(f"{self}: {repr(e)}")
+            logging.error("%s: %s", self, repr(e))
 
             if self.raise_exceptions:
                 raise e
@@ -671,7 +669,7 @@ class Orbiter(ABC):
 
         await close_incoming_close_connection_task
 
-        logging.info(f"{self}: self side connection {connection} closed")
+        logging.info("%s: self side connection %s closed", self, connection)
 
         return connection
 
@@ -717,7 +715,7 @@ class Orbiter(ABC):
             )
 
         except Exception as e:
-            logging.error(f"{self}: {repr(e)}")
+            logging.error("%s: %s", self, repr(e))
 
             if self.raise_exceptions:
                 raise e
@@ -779,10 +777,10 @@ class Orbiter(ABC):
                 )
 
             else:
-                logging.error(f"{self}: unable to handle close connection event: {event}")
+                logging.error("%s: unable to handle close connection event: %s", self, event)
 
         except Exception as e:
-            logging.error(f"{self}: {repr(e)}")
+            logging.error("%s: %s", self, repr(e))
 
             if self.raise_exceptions:
                 raise e
@@ -849,7 +847,7 @@ class Orbiter(ABC):
 
             except Exception as e:
 
-                logging.error(f"{self}: error during loop iteration: {repr(e)}")
+                logging.error("%s: error during loop iteration: %s", self, repr(e))
 
                 if self.raise_exceptions:
                     raise e

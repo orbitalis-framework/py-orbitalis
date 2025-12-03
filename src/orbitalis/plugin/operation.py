@@ -2,7 +2,7 @@ import inspect
 from abc import ABC
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Self, Any
-
+from busline.event.message.avro_message import AvroMessageMixin
 from busline.client.subscriber.event_handler import event_handler
 from busline.client.subscriber.event_handler.event_handler import EventHandler
 from orbitalis.orbiter.schemaspec import Input, Output
@@ -58,7 +58,7 @@ class _OperationDescriptor:
         return self.func.__get__(instance, owner)
 
 
-def operation(*, input: Optional[Input] = None, default_policy: Optional[Policy] = None, output: Optional[Output] = None, name: Optional[str] = None):
+def operation(*, input: Optional[Input | AvroMessageMixin] = None, default_policy: Optional[Policy] = None, output: Optional[Output | AvroMessageMixin] = None, name: Optional[str] = None):
     """
     Transform a function of a method in an operation and append it to operations provider
     """
@@ -66,8 +66,14 @@ def operation(*, input: Optional[Input] = None, default_policy: Optional[Policy]
     if input is None:
         input = Input.no_input()
 
+    if type(input) is AvroMessageMixin:
+        input = Input.from_message(type(input))
+
     if output is None:
         output = Output.no_output()
+
+    if type(output) is AvroMessageMixin:
+        output = Output.from_message(type(output))
 
     if default_policy is None:
         default_policy = Policy.no_constraints()

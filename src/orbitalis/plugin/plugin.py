@@ -137,7 +137,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
     @event_handler
     async def __discover_event_handler(self, topic: str, event: Event[DiscoverMessage]):
-        logging.info(f"{self}: new discover event from {event.payload.core_identifier}: {topic} -> {event}")
+        logging.info("%s: new discover event from %s: %s -> %s", self, event.payload.core_identifier, topic, event)
 
         await self._on_new_discover(event.payload)
 
@@ -159,7 +159,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
             if self.__allow_offer(event.payload.core_identifier, core_needed_operation_name, core_needed_operation_constraint):
                 offerable_operations.append(core_needed_operation_name)
 
-        logging.debug(f"{self}: send offer for these operations: {offerable_operations}")
+        logging.debug("%s: send offer for these operations: %s", self, offerable_operations)
         if len(offerable_operations) > 0:
             await self.send_offer(
                 event.payload.offer_topic,
@@ -221,7 +221,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
             await self.eventbus_client.publish(offer_topic, offer_message)
 
         except Exception as e:
-            logging.error(f"{self}: {repr(e)}")
+            logging.error("%s: %s", self, repr(e))
 
             for pending_request in new_pending_requests:
                 try:
@@ -239,7 +239,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         """
 
     async def __reject_event_handler(self, topic: str, event: Event[RejectOperationMessage]):
-        logging.debug(f"{self}: core {event.payload.core_identifier} rejects plug request for this operation: {event.payload.operation_name}")
+        logging.debug("%s: core %s rejects plug request for this operation: %s", self, event.payload.core_identifier, event.payload.operation_name)
 
         await self._on_reject(event.payload)
 
@@ -250,7 +250,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
                 self._remove_pending_request(pending_request)
 
         except Exception as e:
-            logging.warning(f"{self}: pending request ('{event.payload.core_identifier}', '{event.payload.operation_name}') can not be removed")
+            logging.warning("%s: pending request ('%s', '%s') can not be removed", self, event.payload.core_identifier, event.payload.operation_name)
 
     async def _setup_operation(self, core_identifier: str, operation_name: str, setup_data: Optional[bytes]):
         """
@@ -302,7 +302,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
             return operation_input_topic, plugin_side_close_operation_connection_topic
 
         except Exception as e:
-            logging.error(f"{self}: error during plug operation '{operation_name}' into core '{core_identifier}': {repr(e)}")
+            logging.error("%s: error during plug operation '%s' into core '%s': %s", self, operation_name, core_identifier, repr(e))
 
             await self.eventbus_client.multi_unsubscribe(topics_to_unsubscribe_if_error, parallelize=True)
 
@@ -320,22 +320,22 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
         core_identifier = event.payload.core_identifier
         operation_name = event.payload.operation_name
 
-        logging.debug(f"{self}: core {core_identifier} confirms plug request for this operation: {operation_name}")
+        logging.debug("%s: core %s confirms plug request for this operation: %s", self, core_identifier, operation_name)
 
         if not self._is_pending(core_identifier, operation_name):
-            logging.warning(f"{self}: pending request for ('{core_identifier}', '{operation_name}') not found")
+            logging.warning("%s: pending request for ('%s', '%s') not found", self, core_identifier, operation_name)
             return
 
         pending_request = self._pending_requests_by_remote_identifier(core_identifier)[operation_name]
 
         async with pending_request.lock:
             if not self._is_pending(core_identifier, operation_name):
-                logging.warning(f"{self}: pending request ({core_identifier}, {operation_name}) not available anymore")
+                logging.warning("%s: pending request (%s, %s) not available anymore", self, core_identifier, operation_name)
                 return
 
             try:
                 if not self.__can_lend_to_core(core_identifier, operation_name):
-                    logging.debug(f"{self}: can not lend to core '{core_identifier}' operation: {operation_name}")
+                    logging.debug("%s: can not lend to core '%s' operation: %s", self, core_identifier, operation_name)
 
                     await self.eventbus_client.publish(
                         event.payload.response_topic,
@@ -364,7 +364,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
                     self._promote_pending_request_to_connection(pending_request)
 
             except Exception as e:
-                logging.error(f"{self}: error during confirm pending request': {repr(e)}")
+                logging.error("%s: error during confirm pending request': %s", self, repr(e))
 
                 if self.raise_exceptions:
                     raise e
@@ -377,7 +377,7 @@ class Plugin(OperationsProviderMixin, StateMachine, Orbiter):
 
     @event_handler
     async def __reply_event_handler(self, topic: str, event: Event[RequestOperationMessage | RejectOperationMessage]):
-        logging.info(f"{self}: new reply: {topic} -> {event}")
+        logging.info("%s: new reply: %s -> %s", self, topic, event)
 
         self.have_seen(event.payload.core_identifier)
 

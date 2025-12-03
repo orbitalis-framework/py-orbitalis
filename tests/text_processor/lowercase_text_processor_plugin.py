@@ -27,7 +27,7 @@ class LowercaseTextProcessorPlugin(Plugin):
         lowercase_text = input_str.lower()  # process the string
 
         # Retrieve and touch related connections
-        connections = await self._retrieve_and_touch_connections(
+        connections = await self.retrieve_and_touch_connections(
             input_topic=topic,
             operation_name="lowercase"
         )

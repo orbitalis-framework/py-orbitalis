@@ -45,7 +45,7 @@ class RandomNumberPlugin(Plugin):
     async def __send_randint(self):
         random_number = random.randint(0, 100)      # generate a new random number, it will be sent
 
-        connections = await self._retrieve_and_touch_connections(operation_name="randint")  # retrieve current core connections
+        connections = await self.retrieve_and_touch_connections(operation_name="randint")  # retrieve current core connections
 
         tasks = []
         for connection in connections:

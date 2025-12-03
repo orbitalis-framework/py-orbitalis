@@ -80,7 +80,7 @@ class LampPlugin(Plugin, ABC):
         output=Output.from_message(StatusMessage)
     )
     async def get_status_event_handler(self, topic: str, event: Event):
-        connections = await self._retrieve_and_touch_connections(input_topic=topic, operation_name="get_status")
+        connections = await self.retrieve_and_touch_connections(input_topic=topic, operation_name="get_status")
 
         # Only one connection should be present on inbound topic
         assert len(connections) == 1

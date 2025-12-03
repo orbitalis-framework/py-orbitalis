@@ -219,7 +219,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             discover_operation = Core._is_plugin_operation_required_by_constraint(constraint)
 
             if not discover_operation:
-                logging.debug(f"{self}: operation {operation_name} already satisfied")
+                logging.debug("%s: operation %s already satisfied", self, operation_name)
                 continue
 
             operation_requirements[operation_name] = constraint
@@ -290,7 +290,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
     async def __request_operation(self, plugin_identifier: str, reply_topic: str, offered_operation: OfferedOperation):
 
-        logging.debug(f"{self}: operations to request: {offered_operation}")
+        logging.debug("%s: operations to request: %s", self, offered_operation)
 
         if not self.operation_requirements[offered_operation.name].constraint.output_is_compatible(offered_operation.output):
             return  # invalid offer
@@ -346,7 +346,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
     @event_handler
     async def __offer_event_handler(self, topic: str, event: Event[OfferMessage]):
-        logging.info(f"{self}: new offer: {topic} -> {event}")
+        logging.info("%s: new offer: %s -> %s", self, topic, event)
 
         await self._on_new_offer(event.payload)
 
@@ -379,7 +379,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             await asyncio.gather(*tasks)
 
         except Exception as e:
-            logging.error(f"{self}: {repr(e)}")
+            logging.error("%s: %s", self, repr(e))
 
             if self.raise_exceptions:
                 raise e
@@ -396,14 +396,14 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         operation_name = event.payload.operation_name
 
         if not self._is_pending(plugin_identifier, operation_name):
-            logging.warning(f"{self}: operation {operation_name} from plugin {plugin_identifier} was not requested")
+            logging.warning("%s: operation %s from plugin %s was not requested", self, operation_name, plugin_identifier)
             return
 
         pending_request = self._pending_requests_by_remote_identifier(plugin_identifier)[operation_name]
 
         async with pending_request.lock:
             if not self._is_pending(plugin_identifier, operation_name):
-                logging.warning(f"{self}: pending request ({plugin_identifier}, {operation_name}) not available anymore")
+                logging.warning("%s: pending request (%s, %s) not available anymore", self, plugin_identifier, operation_name)
                 return
 
             topics_to_unsubscribe_if_error: List[str] = []
@@ -417,7 +417,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 topics_to_unsubscribe_if_error.append(pending_request.incoming_close_connection_topic)
 
             except Exception as e:
-                logging.error(f"{self}: error during subscribing on close connection in response handling: {repr(e)}")
+                logging.error("%s: error during subscribing on close connection in response handling: %s", self, repr(e))
 
                 if self.raise_exceptions:
                     raise e
@@ -440,7 +440,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                         topics_to_unsubscribe_if_error.append(pending_request.output_topic)
 
                     except Exception as e:
-                        logging.error(f"{self}: error during subscribing to '{pending_request.output_topic}' in response handling: {repr(e)}")
+                        logging.error("%s: error during subscribing to '%s' in response handling: %s", self, pending_request.output_topic, repr(e))
 
                         await self.eventbus_client.unsubscribe(pending_request.incoming_close_connection_topic)
 
@@ -454,7 +454,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 self._promote_pending_request_to_connection(pending_request)
 
             except Exception as e:
-                logging.error(f"{self}: error during pending request promoting in response handling: {repr(e)}")
+                logging.error("%s: error during pending request promoting in response handling: %s", self, repr(e))
 
                 await self.eventbus_client.multi_unsubscribe(topics_to_unsubscribe_if_error, parallelize=True)
 
@@ -476,7 +476,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
                 self._remove_pending_request(pending_request)
 
         except Exception as e:
-            logging.warning(f"{self}: pending request for operation {event.payload.operation_name} of plugin {event.payload.plugin_identifier} can not be removed, maybe already removed")
+            logging.warning("%s: pending request for operation %s of plugin %s can not be removed, maybe already removed", self, event.payload.operation_name, event.payload.plugin_identifier)
 
     async def _on_response(self):
         """
@@ -486,7 +486,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
     @event_handler
     async def __response_event_handler(self, topic: str, event: Event[ConfirmConnectionMessage | OperationNoLongerAvailableMessage]):
 
-        logging.info(f"{self}: new response: {topic} -> {event}")
+        logging.info("%s: new response: %s -> %s", self, topic, event)
 
         self.have_seen(event.payload.plugin_identifier)
 
@@ -503,7 +503,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         self.update_compliant()
 
-    async def execute_distributed(self, operation_name: str, data: List[Optional[AvroMessageMixin]]) -> Set[str]:
+    async def execute_distributed(self, operation_name: str, data: List[Optional[AvroMessageMixin]], fire_and_forget: bool = False) -> Set[str]:
         """
         Execute the operation by its name, distributing provided data among all compatible plugins.
         All data messages must be of the same type.
@@ -532,18 +532,23 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
             connection = connections[connection_index % len(connections)]
             connection_index += 1
 
-            publishes.append(self.eventbus_client.publish(
-                connection.input_topic,
-                message
-            ))
+            publishes.append(
+                asyncio.create_task(
+                    self.eventbus_client.publish(
+                        connection.input_topic,
+                        message
+                    )
+                )
+            )
 
             plugin_identifiers.add(connection.remote_identifier)
 
-        await asyncio.gather(*publishes)
+        if not fire_and_forget:
+            await asyncio.gather(*publishes)
 
         return plugin_identifiers
 
-    async def execute_sending_all(self, operation_name: str, data: Optional[AvroMessageMixin] = None) -> Set[str]:
+    async def execute_sending_all(self, operation_name: str, data: Optional[AvroMessageMixin] = None, fire_and_forget: bool = False) -> Set[str]:
         """
         Execute the operation by its name, sending provided data to all compatible plugins.
 
@@ -560,16 +565,21 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         for connection in connections:
             plugin_identifiers.add(connection.remote_identifier)
             
-            publishes.append(self.eventbus_client.publish(
-                connection.input_topic,
-                data
-            ))
+            publishes.append(
+                asyncio.create_task(
+                    self.eventbus_client.publish(
+                        connection.input_topic,
+                        data
+                    )
+                )
+            )
 
-        await asyncio.gather(*publishes)
+        if not fire_and_forget:
+            await asyncio.gather(*publishes)
 
         return plugin_identifiers
     
-    async def execute_sending_any(self, operation_name: str, data: Optional[AvroMessageMixin] = None) -> str:
+    async def execute_sending_any(self, operation_name: str, data: Optional[AvroMessageMixin] = None, fire_and_forget: bool = False) -> str:
         """
         Execute the operation by its name, sending provided data to only one random compatible plugin.
 
@@ -583,18 +593,21 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         connection = random.choice(connections)
 
-        await self.eventbus_client.publish(
-            connection.input_topic,
-            data
+        task = asyncio.create_task(
+            self.eventbus_client.publish(
+                connection.input_topic,
+                data
+            )
         )
+
+        if not fire_and_forget:
+            await task
 
         return connection.remote_identifier
 
-    async def execute_using_plugin(self, operation_name: str, plugin_identifier: str, data: Optional[AvroMessageMixin] = None):
+    async def execute_using_plugin(self, operation_name: str, plugin_identifier: str, data: Optional[AvroMessageMixin] = None, fire_and_forget: bool = False):
         """
         Execute the operation by its name, sending provided data to only one specific plugin.
-
-        Return True if data has been sent, False otherwise.
         """
 
         connections = self.retrieve_connections(
@@ -604,25 +617,27 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         )
 
         if len(connections) == 0:
-            return False
+            raise ValueError(f"no connection found for operation {operation_name} and plugin {plugin_identifier}")
 
         if len(connections) > 1:
             raise ValueError(f"multiple connections found for operation {operation_name} and plugin {plugin_identifier}")
+        
+        connection = connections[0]
 
-        for connection in connections:
-            if connection.remote_identifier != plugin_identifier:
-                continue
+        if connection.remote_identifier != plugin_identifier:
+            raise ValueError(f"connection found for operation {operation_name} does not match plugin {plugin_identifier}")
 
-            await self.eventbus_client.publish(
+        task = asyncio.create_task(
+            self.eventbus_client.publish(
                 connection.input_topic,
                 data
             )
+        )
 
-            return True
+        if not fire_and_forget:
+            await task
 
-        return False
-
-    async def execute(self, operation_name: str, data: Optional[AvroMessageMixin] | List[Optional[AvroMessageMixin]] = None,
+    async def execute(self, operation_name: str, data: Optional[AvroMessageMixin] | List[Optional[AvroMessageMixin]] = None, fire_and_forget: bool = False,
                       *, any: Optional[bool] = None, all: Optional[bool] = None, plugin_identifier: Optional[str] = None, distribute: Optional[bool] = None) -> Set[str]:
         """
         Execute the operation by its name, sending provided data.
@@ -636,11 +651,11 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         messages: List[Optional[AvroMessageMixin]] = data if isinstance(data, list) else [data]
 
         if distribute is not None and distribute:
-            return await self.execute_distributed(operation_name=operation_name, data=messages)
+            return await self.execute_distributed(operation_name=operation_name, data=messages, fire_and_forget=fire_and_forget)
 
         if plugin_identifier is not None:
             for message in messages:
-                sent = await self.execute_using_plugin(operation_name=operation_name, data=message, plugin_identifier=plugin_identifier)
+                sent = await self.execute_using_plugin(operation_name=operation_name, data=message, plugin_identifier=plugin_identifier, fire_and_forget=fire_and_forget)
                 if not sent:
                     raise ValueError(f"can not send data to plugin {plugin_identifier} for operation {operation_name}")
 
@@ -649,7 +664,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         if any is not None and any:
             plugin_identifiers: Set[str] = set()
             for message in messages:
-                plugin_id = await self.execute_sending_any(operation_name=operation_name, data=message)
+                plugin_id = await self.execute_sending_any(operation_name=operation_name, data=message, fire_and_forget=fire_and_forget)
                 plugin_identifiers.add(plugin_id)
 
             return plugin_identifiers
@@ -657,7 +672,7 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         if all is not None and all:
             plugin_identifiers: Set[str] = set()
             for message in messages:
-                sent_plugin_ids = await self.execute_sending_all(operation_name=operation_name, data=message)
+                sent_plugin_ids = await self.execute_sending_all(operation_name=operation_name, data=message, fire_and_forget=fire_and_forget)
                 plugin_identifiers.update(sent_plugin_ids)
 
             return plugin_identifiers

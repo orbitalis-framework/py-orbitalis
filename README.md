@@ -371,11 +371,11 @@ class MyPlugin(Plugin):
                 connection.touch()
 ```
 
-Fortunately, there is an useful method called `_retrieve_and_touch_connections` which encapsulates exactly that code:
+Fortunately, there is an useful method called `retrieve_and_touch_connections` which encapsulates exactly that code:
 
 ```python
 # Same plugin of previous example, 
-# but in which _retrieve_and_touch_connections is used
+# but in which retrieve_and_touch_connections is used
 
 @dataclass
 class MyPlugin(Plugin):
@@ -387,7 +387,7 @@ class MyPlugin(Plugin):
     async def its_event_handler(self, topic: str, event: Event[...]):
 
         # Retrieves connections related to this operation and touches them
-        connections = await self._retrieve_and_touch_connections(
+        connections = await self.retrieve_and_touch_connections(
             input_topic=topic, 
             operation_name="my_operation"
         )
@@ -605,7 +605,7 @@ class LowercaseTextProcessorPlugin(Plugin):
         lowercase_text = input_str.lower()  # process the string
 
         # Retrieve and touch related connections
-        connections = await self._retrieve_and_touch_connections(
+        connections = await self.retrieve_and_touch_connections(
             input_topic=topic, 
             operation_name="lowercase"
         )
@@ -676,7 +676,7 @@ class RandomNumberPlugin(Plugin):
     async def __send_randint(self):
         random_number = random.randint(0, 100)      # generate a new random number, it will be sent
 
-        connections = await self._retrieve_and_touch_connections(operation_name="randint")  # retrieve current core connections
+        connections = await self.retrieve_and_touch_connections(operation_name="randint")  # retrieve current core connections
 
         tasks = []
         for connection in connections:
@@ -881,7 +881,7 @@ class LampPlugin(Plugin, ABC):
         output=Output.from_message(StatusMessage)
     )
     async def get_status_event_handler(self, topic: str, event: Event):
-        connections = await self._retrieve_and_touch_connections(input_topic=topic, operation_name="get_status")
+        connections = await self.retrieve_and_touch_connections(input_topic=topic, operation_name="get_status")
 
         # Only one connection should be present on inbound topic
         assert len(connections) == 1
@@ -1829,7 +1829,7 @@ class HelloSenderPlugin(Plugin):
             await self.__send_hello()
 
     async def __send_hello(self):
-        connections = await self._retrieve_and_touch_connections(operation_name="hello")  # retrieve current core connections
+        connections = await self.retrieve_and_touch_connections(operation_name="hello")  # retrieve current core connections
 
         tasks = []
         for connection in connections:
