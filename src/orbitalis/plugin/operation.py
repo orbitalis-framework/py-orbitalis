@@ -1,7 +1,7 @@
 import inspect
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Self, Any
+from typing import Optional, Dict, Self, Any, Type
 from busline.event.message.avro_message import AvroMessageMixin
 from busline.client.subscriber.event_handler import event_handler
 from busline.client.subscriber.event_handler.event_handler import EventHandler
@@ -58,7 +58,7 @@ class _OperationDescriptor:
         return self.func.__get__(instance, owner)
 
 
-def operation(*, input: Optional[Input | AvroMessageMixin] = None, default_policy: Optional[Policy] = None, output: Optional[Output | AvroMessageMixin] = None, name: Optional[str] = None):
+def operation(*, input: Optional[Input | Type[AvroMessageMixin]] = None, default_policy: Optional[Policy] = None, output: Optional[Output | Type[AvroMessageMixin]] = None, name: Optional[str] = None):
     """
     Transform a function of a method in an operation and append it to operations provider
     """
@@ -66,14 +66,27 @@ def operation(*, input: Optional[Input | AvroMessageMixin] = None, default_polic
     if input is None:
         input = Input.no_input()
 
-    if isinstance(input, AvroMessageMixin):
-        input = Input.from_message(type(input))
+    if inspect.isclass(input):
+        if issubclass(input, AvroMessageMixin):
+            input = Input.from_message(input)
+        else:
+            raise TypeError("If you pass a type, input must be an AvroMessageMixin subclass")
+    else:
+        if not isinstance(input, Input):
+            raise TypeError("input must be either Input or AvroMessageMixin subclass")
 
     if output is None:
         output = Output.no_output()
 
-    if isinstance(output, AvroMessageMixin):
-        output = Output.from_message(type(output))
+    if inspect.isclass(output):
+        if issubclass(output, AvroMessageMixin):
+            output = Output.from_message(output)
+        else:
+            raise TypeError("If you pass a type, output must be an AvroMessageMixin subclass")
+    else:
+        if not isinstance(output, Output):
+            raise TypeError("output must be either Output or AvroMessageMixin subclass")    
+    
 
     if default_policy is None:
         default_policy = Policy.no_constraints()

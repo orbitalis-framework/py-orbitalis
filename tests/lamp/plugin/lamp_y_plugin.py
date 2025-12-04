@@ -57,7 +57,7 @@ class LampYPlugin(LampPlugin):
 
     @operation(     # add new operation with name: "turn_on"
         name="turn_on",
-        input=Input.from_message(TurnOnLampYMessage)   # accepts TurnOnLampYMessage messages (checking its Avro schema)
+        input=TurnOnLampYMessage   # accepts TurnOnLampYMessage messages (checking its Avro schema)
     )
     async def turn_on_event_handler(self, topic: str, event: Event[TurnOnLampYMessage]):
         self.turn_on()
