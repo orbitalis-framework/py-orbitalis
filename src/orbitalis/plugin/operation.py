@@ -66,13 +66,13 @@ def operation(*, input: Optional[Input | AvroMessageMixin] = None, default_polic
     if input is None:
         input = Input.no_input()
 
-    if type(input) is AvroMessageMixin:
+    if isinstance(input, AvroMessageMixin):
         input = Input.from_message(type(input))
 
     if output is None:
         output = Output.no_output()
 
-    if type(output) is AvroMessageMixin:
+    if isinstance(output, AvroMessageMixin):
         output = Output.from_message(type(output))
 
     if default_policy is None:
