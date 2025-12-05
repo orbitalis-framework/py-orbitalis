@@ -66,6 +66,8 @@ class Orbiter(ABC):
 
     _unsubscribe_on_full_close_bucket: Dict[str, Set[str]] = field(default_factory=lambda: defaultdict(set), init=False)
 
+    _loop_task: Optional[asyncio.Task] = field(default=None, init=False)
+
     __stop_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
     __pause_loop_controller: asyncio.Event = field(default_factory=lambda: asyncio.Event(), init=False)
 
@@ -401,17 +403,14 @@ class Orbiter(ABC):
                     if expiration < datetime.now():
                         to_close.append(connection)
 
-            tasks = []
-            for connection in to_close:
-                tasks.append(
-                    asyncio.create_task(
-                        self.send_graceful_close_connection(connection.remote_identifier, connection.operation_name)
-                    )
-                )
-                closed += 1
+            tasks = [
+                self.send_graceful_close_connection(c.remote_identifier, c.operation_name)
+                for c in to_close
+            ]
 
-            if len(tasks) > 0:
+            if tasks:
                 await asyncio.gather(*tasks)
+                closed += len(tasks)
 
             return closed
 
@@ -443,17 +442,14 @@ class Orbiter(ABC):
                     if expiration < datetime.now():
                         to_close.append(connection)
 
-            tasks = []
-            for connection in to_close:
-                tasks.append(
-                    asyncio.create_task(
-                        self.send_graceless_close_connection(connection.remote_identifier, connection.operation_name)
-                    )
-                )
-                closed += 1
+            tasks = [
+                self.send_graceless_close_connection(c.remote_identifier, c.operation_name)
+                for c in to_close
+            ]
 
-            if len(tasks) > 0:
+            if tasks:
                 await asyncio.gather(*tasks)
+                closed += len(tasks)
 
             return closed
 
@@ -560,7 +556,7 @@ class Orbiter(ABC):
         for remote_identifier, operations in self._connections.values():
             if len(operations) > 0 and remote_identifier in self._remote_keepalive_topics:
                 tasks.append(
-                    asyncio.create_task(self.send_keepalive(remote_identifier=remote_identifier))
+                    self.send_keepalive(remote_identifier=remote_identifier)
                 )
 
         await asyncio.gather(*tasks)
@@ -581,9 +577,7 @@ class Orbiter(ABC):
             if remote_identifier not in self._last_keepalive_sent:
                 logging.debug("%s: not previous keepalive sent to %s", self, remote_identifier)
                 tasks.append(
-                    asyncio.create_task(
-                        self.send_keepalive(remote_identifier)
-                    )
+                    self.send_keepalive(remote_identifier)
                 )
                 continue
 
@@ -598,12 +592,10 @@ class Orbiter(ABC):
             if remote_identifier not in self._last_keepalive_sent \
                     or (considered_dead_at - datetime.now()).seconds < self.send_keepalive_before_timelimit:
                 tasks.append(
-                    asyncio.create_task(
-                        self.send_keepalive(remote_identifier)
-                    )
+                    self.send_keepalive(remote_identifier)
                 )
 
-        await asyncio.gather(*tasks)
+        return asyncio.gather(*tasks)
 
 
     def _build_incoming_close_connection_topic(self, remote_identifier: str, operation_name: str) -> str:
@@ -810,7 +802,7 @@ class Orbiter(ABC):
     def start_loop(self):
         self.__stop_loop_controller.clear()
         self.__pause_loop_controller.clear()
-        asyncio.create_task(self.__loop())
+        self._loop_task = asyncio.create_task(self.__loop())
 
     def stop_loop(self):
         self.__stop_loop_controller.set()

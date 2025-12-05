@@ -22,6 +22,7 @@ from orbitalis.orbiter.orbiter import Orbiter
 from orbitalis.orbiter.pending_request import PendingRequest
 from orbitalis.orbiter.schemaspec import Input
 from orbitalis.state_machine.state_machine import StateMachine
+from orbitalis.utils.task import fire_and_forget_task
 
 
 @dataclass(kw_only=True)
@@ -364,16 +365,16 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         tasks = []
         for offered_operation in event.payload.offered_operations:
             if self._is_plugin_operation_required_and_pluggable(event.payload.plugin_identifier, offered_operation):
-                tasks.append(asyncio.create_task(self.__request_operation(
+                tasks.append(self.__request_operation(
                     event.payload.plugin_identifier,
                     event.payload.reply_topic,
                     offered_operation
-                )))
+                ))
             else:
-                tasks.append(asyncio.create_task(self.__reject_operation(
+                tasks.append(self.__reject_operation(
                     event.payload.reply_topic,
                     offered_operation
-                )))
+                ))
 
         try:
             await asyncio.gather(*tasks)
@@ -525,26 +526,27 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         )
 
         plugin_identifiers: Set[str] = set()
-        publishes = []
+        tasks = []
         connection_index = 0
 
         for message in data:
             connection = connections[connection_index % len(connections)]
             connection_index += 1
 
-            publishes.append(
-                asyncio.create_task(
-                    self.eventbus_client.publish(
+            task = self.eventbus_client.publish(
                         connection.input_topic,
                         message
                     )
-                )
-            )
+
+            if fire_and_forget:
+                fire_and_forget_task(task)
+            else:
+                tasks.append(task)
 
             plugin_identifiers.add(connection.remote_identifier)
 
         if not fire_and_forget:
-            await asyncio.gather(*publishes)
+            await asyncio.gather(*tasks)
 
         return plugin_identifiers
 
@@ -561,21 +563,22 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         )
 
         plugin_identifiers: Set[str] = set()
-        publishes = []
+        tasks = []
         for connection in connections:
             plugin_identifiers.add(connection.remote_identifier)
-            
-            publishes.append(
-                asyncio.create_task(
-                    self.eventbus_client.publish(
-                        connection.input_topic,
-                        data
-                    )
+
+            task = self.eventbus_client.publish(
+                    connection.input_topic,
+                    data
                 )
-            )
+            
+            if fire_and_forget:
+                fire_and_forget_task(task)
+            else:
+                tasks.append(task)
 
         if not fire_and_forget:
-            await asyncio.gather(*publishes)
+            await asyncio.gather(*tasks)
 
         return plugin_identifiers
     
@@ -593,14 +596,14 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
 
         connection = random.choice(connections)
 
-        task = asyncio.create_task(
-            self.eventbus_client.publish(
-                connection.input_topic,
-                data
-            )
+        task = self.eventbus_client.publish(
+            connection.input_topic,
+            data
         )
 
-        if not fire_and_forget:
+        if fire_and_forget:
+            fire_and_forget_task(task)
+        else:
             await task
 
         return connection.remote_identifier
@@ -627,14 +630,14 @@ class Core(SinksProviderMixin, StateMachine[CoreState], Orbiter):
         if connection.remote_identifier != plugin_identifier:
             raise ValueError(f"connection found for operation {operation_name} does not match plugin {plugin_identifier}")
 
-        task = asyncio.create_task(
-            self.eventbus_client.publish(
-                connection.input_topic,
-                data
-            )
+        task = self.eventbus_client.publish(
+            connection.input_topic,
+            data
         )
 
-        if not fire_and_forget:
+        if fire_and_forget:
+            fire_and_forget_task(task)
+        else:
             await task
 
     async def execute(self, operation_name: str, data: Optional[AvroMessageMixin] | List[Optional[AvroMessageMixin]] = None, fire_and_forget: bool = False,

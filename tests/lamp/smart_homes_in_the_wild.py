@@ -118,7 +118,7 @@ async def main():
     tasks = []
     for orbiter in [*cores, *plugins]:
         tasks.append(
-            asyncio.create_task(orbiter.start())
+            orbiter.start()
         )
 
     await asyncio.gather(*tasks)
